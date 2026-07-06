@@ -250,6 +250,14 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
     evidence_list = []
     bias_data = {}
 
+    # Trace logs capture
+    ingestion_trace = "Pending execution..."
+    claim_trace = "Pending execution..."
+    evidence_trace = "Pending execution..."
+    credibility_trace = "Pending execution..."
+    bias_trace = "Pending execution..."
+    verdict_trace = "Pending execution..."
+
     try:
         events = run_truthlens_verification(sanitized, session_id=session_id, api_key=active_key)
         
@@ -268,28 +276,38 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
             # Update status based on active agent
             if agent_name == "IngestionAgent":
                 current_status = "1/7 Ingesting and parsing content..."
+                if text_content:
+                    ingestion_trace = text_content
                 yield get_verdict_html("Processing", 15.0), 15.0, "### 📥 Ingesting and Parsing Content...\nExtracting raw text and visual metadata from source.", current_status, gr.update(visible=False)
             elif agent_name == "ClaimExtractionAgent":
                 current_status = "2/7 Extracting factual claims..."
-                yield get_verdict_html("Processing", 30.0), 30.0, "### 📝 Extracting Factual Claims...\nIsolating check-worthy assertions of facts, statistics, or quotes.", current_status, gr.update(visible=False)
                 if text_content:
+                    claim_trace = text_content
                     claims_data = extract_json_from_text(text_content)
                     if isinstance(claims_data, dict):
                         extracted_claims = claims_data.get("claims", [])
                     elif isinstance(claims_data, list):
                         extracted_claims = claims_data
+                yield get_verdict_html("Processing", 30.0), 30.0, "### 📝 Extracting Factual Claims...\nIsolating check-worthy assertions of facts, statistics, or quotes.", current_status, gr.update(visible=False)
             elif agent_name == "EvidenceRetrieverAgent":
                 current_status = "3/7 Retrieving evidence from web & Wikipedia..."
+                if text_content:
+                    evidence_trace = text_content
                 yield get_verdict_html("Processing", 50.0), 50.0, "### 🔍 Retrieving Supporting/Refuting Evidence...\nSearching Wikipedia and Google grounding index for facts.", current_status, gr.update(visible=False)
             elif agent_name == "SourceCredibilityAgent":
                 current_status = "4/7 Scoring source credibility..."
+                if text_content:
+                    credibility_trace = text_content
                 yield get_verdict_html("Processing", 70.0), 70.0, "### 📊 Scoring Source Credibility...\nAnalyzing references against known reliability indexes.", current_status, gr.update(visible=False)
             elif agent_name == "BiasAnalyzerAgent":
                 current_status = "5/7 Analyzing framing and sensationalism..."
+                if text_content:
+                    bias_trace = text_content
                 yield get_verdict_html("Processing", 85.0), 85.0, "### ⚖️ Analyzing Formatting, Tone, and Logical Fallacies...\nEvaluating loaded language and emotional sentiment.", current_status, gr.update(visible=False)
             elif agent_name == "VerdictAgent":
                 current_status = "6/7 Cross-referencing and issuing verdicts..."
                 if text_content:
+                    verdict_trace = text_content
                     verdict_data = extract_json_from_text(text_content)
                     if isinstance(verdict_data, dict):
                         # Extract overall confidence
@@ -391,8 +409,44 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
 - **Consensus Status**: **{consensus_rating}**
 - **Explanation**: {consensus_desc}
 """
-            # Append diagnostics to report
-            final_report = f"{final_report}\n\n---\n\n## 🛠️ TruthLens System Diagnostics\n{consensus_md}{sources_md}"
+            trace_md = f"""
+<details>
+<summary>🔍 View Live Agent Tracing Logs (JSON Spans)</summary>
+
+### 📥 1. IngestionAgent Output
+```json
+{ingestion_trace}
+```
+
+### 📝 2. ClaimExtractionAgent Output
+```json
+{claim_trace}
+```
+
+### 🔍 3. EvidenceRetrieverAgent Output
+```json
+{evidence_trace}
+```
+
+### 📊 4. SourceCredibilityAgent Output
+```json
+{credibility_trace}
+```
+
+### ⚖️ 5. BiasAnalyzerAgent Output
+```json
+{bias_trace}
+```
+
+### ⚖️ 6. VerdictAgent Output
+```json
+{verdict_trace}
+```
+
+</details>
+"""
+            # Append diagnostics and traces to report
+            final_report = f"{final_report}\n\n---\n\n## 🛠️ TruthLens System Diagnostics\n{consensus_md}{sources_md}\n\n{trace_md}"
 
             # Save report to local file for download
             report_path = os.path.join(os.getcwd(), "truthlens_factcheck_report.md")
