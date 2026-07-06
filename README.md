@@ -24,6 +24,19 @@ TruthLens employs a sequential multi-agent graph containing 7 specialized agents
 
 ---
 
+## 📸 Screenshots Gallery
+
+<p align="center">
+  <b>Verification Hub Workspace</b><br>
+  <img src="assets/screenshots/home.png" width="800" alt="TruthLens Verification Hub"><br><br>
+  <b>TruthLens Registry & Statistics Cache</b><br>
+  <img src="assets/screenshots/registry.png" width="800" alt="TruthLens Registry Dashboard"><br><br>
+  <b>Developer API Integrations</b><br>
+  <img src="assets/screenshots/developer_api.png" width="800" alt="TruthLens Developer API">
+</p>
+
+---
+
 ## ✨ Key Features & Course Concepts Demonstrated
 
 1. **Multi-Agent Orchestration (ADK 2.0)**: Orchestrates 7 highly focused, specialized agents using a linear graph workflow via `google.adk.Workflow`.
