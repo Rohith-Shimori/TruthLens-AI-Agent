@@ -113,11 +113,13 @@ The project includes a multi-stage `Dockerfile` built on `python:3.12-slim` and 
 ## 4. 🎨 Premium User Interface Design
 
 To deliver maximum user value and a compelling "Wow" factor for evaluation, TruthLens features a bespoke Gradio interface structured with advanced frontend design best practices:
-*   **Glassmorphism Theme:** Customized dark-mode aesthetics utilizing a translucent slate-blue background, subtle glowing borders (`#3b82f6` highlights), and high-contrast typography loaded dynamically from Google Fonts (`Outfit` and `Plus Jakarta Sans`).
-*   **Platform Context Presets:** Includes responsive button quick-selectors for **WhatsApp, Telegram, LinkedIn, and Gmail**. Clicking a platform automatically styles and updates the labels and placeholders to guide the user on typical rumor formats.
+*   **Glassmorphism Theme:** Translucent panels, dark themes, and Outfit/Jakarta typography loaded dynamically from Google Fonts via HTML `<link>` injection.
+*   **Cross-Theme CSS Locking:** Hardcoded `:root` CSS variables (e.g. `--background-fill-primary`, `--block-background-fill`, `--body-text-color`) enforce our custom dark glassmorphic palette. This completely prevents clashing colors or white-on-white text issues if the user or browser switches to light mode.
+*   **Zero Console Warnings:** Clean CSS architecture with no dynamic `@import` rules (resolving construct-stylesheets security constraints in Chromium) and fully compliant HTML bindings.
+*   **Custom Branded Header & Title:** The browser tab name, HTML title, and interface headers are branded uniquely as "TruthLens | Advanced Multi-Agent Fact-Checking System" with standard Gradio footer branding completely hidden.
 *   **Dynamic Glowing Verdict Banners:** Custom HTML containers rendering large, colored verdict badges (green for True, red for False, amber for Misleading) with matching emoji indicators and drop-shadow glow effects.
-*   **API Key Configuration Panel:** Placed in the right-hand column directly under the confidence index slider for clean layout grouping, with direct links to Google AI Studio. Entering a key dynamically sets the agent environment and saves it to `.env` without restarts.
-*   **Interactive Registry & Live Metrics:** Features a database summary grid (total claims, average system confidence, flagged false rumors) alongside a refreshable historical DataFrame log.
+*   **Dynamic System Diagnostics:** Once the report is generated, a local diagnostic engine computes a **Source Consensus Analysis** (determining if web databases agree, conflict, or debunk the claim) and renders a structured **Source Domain Reliability Heatmap** table showing each cited URL domain's safety rating (Government/Academic, Trusted, Social Media, etc.) and safety score.
+*   **Report Exporter component:** Dynamically generates a downloadable Markdown file (`.md`) of the fact-check report directly in the UI.
 
 ---
 

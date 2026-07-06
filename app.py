@@ -398,6 +398,17 @@ def get_stats_html() -> str:
     """
     return html
 
+def update_key_status(key: str) -> str:
+    if not key:
+        if GOOGLE_API_KEY:
+            return "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #fbbf24; font-weight: bold;'>🟡 Environment Key Active (Loaded from .env)</span></div>"
+        return "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #ef4444; font-weight: bold;'>🔴 Missing (Please paste your key above)</span></div>"
+        
+    if key.startswith("AIzaSy") and len(key) >= 30:
+        return "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #10b981; font-weight: bold;'>🟢 Active Key Entered (Will be saved to .env)</span></div>"
+    else:
+        return "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #fbbf24; font-weight: bold;'>⚠️ Key Format Warning (Ensure it is a valid Gemini API Key)</span></div>"
+
 def get_history_table() -> list:
     history = memory.get_recent_verifications()
     return [[h.get("query_text", "")[:60] + "...", h.get("verdict", ""), f"{h.get('confidence_score', 0.0)}%", time.strftime('%Y-%m-%d %H:%M', time.localtime(h.get('created_at', 0)))] for h in history]
@@ -648,6 +659,10 @@ with gr.Blocks(title="TruthLens | Advanced Multi-Agent Fact-Checking System") as
                             type="password",
                             value=GOOGLE_API_KEY or ""
                         )
+                        key_status_html = gr.HTML(
+                            value="<div style='margin-top: 10px; font-size: 13px;'><span style='color: #10b981; font-weight: bold;'>🟢 Connected (Loaded from environment)</span></div>" if GOOGLE_API_KEY 
+                            else "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #ef4444; font-weight: bold;'>🔴 Missing (Please paste your key above)</span></div>"
+                        )
             
             # Markdown Report Output (Scroll down)
             gr.HTML("<h3 style='color: #f8fafc; margin-top: 35px; border-bottom: 1px solid #1e293b; padding-bottom: 10px; font-weight: 700;'>📋 Verification Report</h3>")
@@ -666,12 +681,61 @@ with gr.Blocks(title="TruthLens | Advanced Multi-Agent Fact-Checking System") as
             )
             refresh_btn = gr.Button("Refresh Registry & Statistics", elem_classes=["verify-btn"])
 
+        # TAB 3: Integrations & API Docs
+        with gr.Tab("🔌 Developer API"):
+            gr.HTML("<h3 style='color: #f8fafc; margin-bottom: 20px; font-weight: 700;'>🔌 Developer API Access</h3>")
+            gr.Markdown("""
+TruthLens is built to be accessible programmatically. You can connect this multi-agent fact-checking engine to your own WhatsApp bots, Telegram channels, custom browser extensions, or newsroom tools.
+
+### 🐍 Python Gradio Client Example
+Integrate fact-checking into your Python application in less than 5 lines of code:
+```python
+from gradio_client import Client
+
+# Initialize client pointing to this server
+client = Client("http://localhost:7860/")
+
+# Trigger multi-agent pipeline
+result = client.predict(
+    user_input="Paste claim or URL here...",
+    image_file=None,  # Or pass filepath to image
+    api_key="YOUR_GEMINI_API_KEY",
+    api_name="/process_verification"
+)
+
+# Output is a list: [verdict_html, confidence_score, markdown_report, status_lbl, report_file_path]
+print(result[2]) # Print the markdown report!
+```
+
+### ✈️ Integrations Checklist
+1. **WhatsApp & Telegram bots**: Run a polling listener that calls the Gradio API client whenever a user forwards a message.
+2. **Browser Extensions**: Highlight any text on a page, right-click, and send it to the TruthLens backend to get a visual popup verdict card.
+""")
+
+    # Custom premium footer
+    gr.HTML("""
+    <div style='text-align: center; margin-top: 40px; padding: 20px 0; border-top: 1px solid #1e293b; color: #64748b; font-size: 13px;'>
+        <div style='display: flex; justify-content: center; gap: 20px; margin-bottom: 10px;'>
+            <span style='font-weight: 600; color: #94a3b8;'>⚖️ System: Online</span>
+            <span style='font-weight: 600; color: #94a3b8;'>🛡️ Powered by: Google ADK 2.0 & Gemini 2.5</span>
+        </div>
+        <div>© 2026 TruthLens. All rights reserved. Built for Kaggle x Google AI Agents.</div>
+    </div>
+    """)
+
     # Platform selector event wiring
     whatsapp_btn.click(fn=select_whatsapp, inputs=[], outputs=[user_text])
     telegram_btn.click(fn=select_telegram, inputs=[], outputs=[user_text])
     linkedin_btn.click(fn=select_linkedin, inputs=[], outputs=[user_text])
     gmail_btn.click(fn=select_gmail, inputs=[], outputs=[user_text])
     general_btn.click(fn=select_general, inputs=[], outputs=[user_text])
+
+    # Dynamic API Key status handler
+    api_key_input.change(
+        fn=update_key_status,
+        inputs=[api_key_input],
+        outputs=[key_status_html]
+    )
 
     # Verification click handler
     verify_btn.click(
