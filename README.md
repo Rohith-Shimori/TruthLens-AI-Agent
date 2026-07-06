@@ -1,5 +1,9 @@
 # 🛡️ TruthLens: Advanced Multi-Agent Misinformation Detection System
 
+### **Kaggle x Google AI Agents Capstone Submission**
+*   **Live Web Demo:** https://90407c95186370ea80.gradio.live
+*   **Kaggle Writeup Documentation:** [kaggle_writeup.md](kaggle_writeup.md)
+
 TruthLens is an enterprise-grade, multi-agent fact-checking and misinformation detection system. It is designed to help users quickly verify claims spreading across social media (WhatsApp, Telegram, Twitter, LinkedIn) by orchestrating a pipeline of specialized AI agents.
 
 Built using the **Google Agent Development Kit (ADK) 2.0**, **Gemini 2.5 Flash**, **Model Context Protocol (MCP)**, and **Gradio**, TruthLens is a robust, secure, and highly auditable verification engine.
