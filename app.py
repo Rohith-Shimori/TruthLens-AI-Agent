@@ -10,10 +10,14 @@ from config import GOOGLE_API_KEY
 from security import SecurityManager
 from memory import MemoryManager
 from agent import run_truthlens_verification
+from credibility import CredibilityScorer
+from bias_analyzer import BiasAnalyzer
 
 # Initialize managers
 security = SecurityManager()
 memory = MemoryManager()
+cred_scorer = CredibilityScorer()
+bias_anal = BiasAnalyzer()
 
 # Default report placeholder
 WELCOME_MESSAGE = """
@@ -120,10 +124,10 @@ def get_verdict_html(verdict: str, confidence: float) -> str:
     </div>
     """
 
-def process_verification(user_input: str, image_file: Optional[str], api_key: Optional[str] = None) -> Generator[Tuple[str, float, str, str], None, None]:
+def process_verification(user_input: str, image_file: Optional[str], api_key: Optional[str] = None) -> Generator[Tuple[str, float, str, str, Any], None, None]:
     """
     Core function called by the UI.
-    Streams progress states, then yields the final verdict html, confidence, report, and status.
+    Streams progress states, then yields the final verdict html, confidence, report, status, and download file.
     """
     # 1. Determine actual input
     target_input = ""
@@ -137,7 +141,7 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
         if target_input.startswith(("http://", "https://")):
             input_type = "url"
     else:
-        yield get_verdict_html("Unverified", 0.0), 0.0, "### ❌ Input Required\nPlease provide either a URL, raw text, or upload an image screenshot.", "Ready"
+        yield get_verdict_html("Unverified", 0.0), 0.0, "### ❌ Input Required\nPlease provide either a URL, raw text, or upload an image screenshot.", "Ready", gr.update(visible=False)
         return
 
     # 2. Security validation
@@ -146,15 +150,15 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
     if input_type != "image":
         is_injection, reason = security.detect_prompt_injection(sanitized)
         if is_injection:
-            yield get_verdict_html("Unverified", 0.0), 0.0, f"### ⚠️ Security Violation\n{reason}", "Blocked"
+            yield get_verdict_html("Unverified", 0.0), 0.0, f"### ⚠️ Security Violation\n{reason}", "Blocked", gr.update(visible=False)
             return
             
         if not security.validate_content_length(sanitized):
-            yield get_verdict_html("Unverified", 0.0), 0.0, "### ❌ Input Too Long\nInput text exceeds the maximum character threshold (50,000 characters).", "Ready"
+            yield get_verdict_html("Unverified", 0.0), 0.0, "### ❌ Input Too Long\nInput text exceeds the maximum character threshold (50,000 characters).", "Ready", gr.update(visible=False)
             return
 
     # 3. Check SQLite memory cache
-    yield get_verdict_html("Processing", 20.0), 20.0, "### 🔍 Searching cache...\nRetrieving matching verification payloads from local SQLite index.", "Checking database cache..."
+    yield get_verdict_html("Processing", 20.0), 20.0, "### 🔍 Searching cache...\nRetrieving matching verification payloads from local SQLite index.", "Checking database cache...", gr.update(visible=False)
     time.sleep(1.0)
     
     cached = memory.check_cache(sanitized)
@@ -184,20 +188,29 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
         bias = cached.get("bias_analysis", {})
         cached_report += f"- **Sensationalism Score**: {bias.get('sensationalism_score', 0)}/100 ({bias.get('sensationalism_rating', 'Objective')})\n"
         
-        yield get_verdict_html(verdict, confidence), confidence, cached_report, "Verification loaded from memory cache!"
+        # Save to file for download
+        report_path = os.path.join(os.getcwd(), "truthlens_factcheck_report.md")
+        try:
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write(cached_report)
+            file_update = gr.update(value=report_path, visible=True)
+        except Exception:
+            file_update = gr.update(visible=False)
+            
+        yield get_verdict_html(verdict, confidence), confidence, cached_report, "Verification loaded from memory cache!", file_update
         return
 
     # 4. Cache miss - run the ADK Multi-Agent Workflow
     active_key = api_key or GOOGLE_API_KEY or os.getenv("GOOGLE_API_KEY")
     if not active_key:
-        yield get_verdict_html("Unverified", 0.0), 0.0, "### 🔑 API Key Required\nPlease enter your Gemini API key in the configuration panel above, or set it in your `.env` file to start the live verification pipeline.", "API Key missing"
+        yield get_verdict_html("Unverified", 0.0), 0.0, "### 🔑 API Key Required\nPlease enter your Gemini API key in the configuration panel above, or set it in your `.env` file to start the live verification pipeline.", "API Key missing", gr.update(visible=False)
         return
 
     session_id = f"sess_{int(time.time())}"
     current_status = "Initializing Agents..."
     
     # We yield intermediate states to show progress
-    yield get_verdict_html("Processing", 10.0), 10.0, "### 🏗&nbsp; Initializing TruthLens Agent Network...\nDecoupling instructions and establishing session channels.", current_status
+    yield get_verdict_html("Processing", 10.0), 10.0, "### 🏗&nbsp; Initializing TruthLens Agent Network...\nDecoupling instructions and establishing session channels.", current_status, gr.update(visible=False)
     
     final_report = ""
     verdict = "Unverified"
@@ -224,10 +237,10 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
             # Update status based on active agent
             if agent_name == "IngestionAgent":
                 current_status = "1/7 Ingesting and parsing content..."
-                yield get_verdict_html("Processing", 15.0), 15.0, "### 📥 Ingesting and Parsing Content...\nExtracting raw text and visual metadata from source.", current_status
+                yield get_verdict_html("Processing", 15.0), 15.0, "### 📥 Ingesting and Parsing Content...\nExtracting raw text and visual metadata from source.", current_status, gr.update(visible=False)
             elif agent_name == "ClaimExtractionAgent":
                 current_status = "2/7 Extracting factual claims..."
-                yield get_verdict_html("Processing", 30.0), 30.0, "### 📝 Extracting Factual Claims...\nIsolating check-worthy assertions of facts, statistics, or quotes.", current_status
+                yield get_verdict_html("Processing", 30.0), 30.0, "### 📝 Extracting Factual Claims...\nIsolating check-worthy assertions of facts, statistics, or quotes.", current_status, gr.update(visible=False)
                 if text_content:
                     claims_data = extract_json_from_text(text_content)
                     if isinstance(claims_data, dict):
@@ -236,23 +249,23 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
                         extracted_claims = claims_data
             elif agent_name == "EvidenceRetrieverAgent":
                 current_status = "3/7 Retrieving evidence from web & Wikipedia..."
-                yield get_verdict_html("Processing", 50.0), 50.0, "### 🔍 Retrieving Supporting/Refuting Evidence...\nSearching Wikipedia and Google grounding index for facts.", current_status
+                yield get_verdict_html("Processing", 50.0), 50.0, "### 🔍 Retrieving Supporting/Refuting Evidence...\nSearching Wikipedia and Google grounding index for facts.", current_status, gr.update(visible=False)
             elif agent_name == "SourceCredibilityAgent":
                 current_status = "4/7 Scoring source credibility..."
-                yield get_verdict_html("Processing", 70.0), 70.0, "### 📊 Scoring Source Credibility...\nAnalyzing references against known reliability indexes.", current_status
+                yield get_verdict_html("Processing", 70.0), 70.0, "### 📊 Scoring Source Credibility...\nAnalyzing references against known reliability indexes.", current_status, gr.update(visible=False)
             elif agent_name == "BiasAnalyzerAgent":
                 current_status = "5/7 Analyzing framing and sensationalism..."
-                yield get_verdict_html("Processing", 85.0), 85.0, "### ⚖️ Analyzing Formatting, Tone, and Logical Fallacies...\nEvaluating loaded language and emotional sentiment.", current_status
+                yield get_verdict_html("Processing", 85.0), 85.0, "### ⚖️ Analyzing Formatting, Tone, and Logical Fallacies...\nEvaluating loaded language and emotional sentiment.", current_status, gr.update(visible=False)
             elif agent_name == "VerdictAgent":
                 current_status = "6/7 Cross-referencing and issuing verdicts..."
-                yield get_verdict_html("Processing", 95.0), 95.0, "### ⚖️ Cross-Referencing Evidence & Issuing Verdicts...\nSynthesizing source ratings and fact alignments.", current_status
+                yield get_verdict_html("Processing", 95.0), 95.0, "### ⚖️ Cross-Referencing Evidence & Issuing Verdicts...\nSynthesizing source ratings and fact alignments.", current_status, gr.update(visible=False)
             elif agent_name == "ReportGeneratorAgent":
                 current_status = "7/7 Compiling final report..."
                 if text_content:
                     final_report = text_content
                     # Robust verdict parsing
                     verdict, confidence = parse_verdict_from_report(final_report)
-                yield get_verdict_html(verdict, confidence), confidence, final_report or "Generating final output...", current_status
+                yield get_verdict_html(verdict, confidence), confidence, final_report or "Generating final output...", current_status, gr.update(visible=False)
 
 
         # Save to SQLite cache on success
@@ -268,6 +281,74 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
             if not extracted_claims:
                 extracted_claims = [{"claim_text": "Original Query Factual Assertions"}]
             
+            # --- ADVANCED DIAGNOSTICS & CONSENSUS ENGINE ---
+            # 1. Parse domains from the report
+            urls = re.findall(r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+[^\s\)\"\'\<\>]*', final_report)
+            domains = set()
+            for url in urls:
+                domain = cred_scorer.extract_domain(url)
+                if domain and domain not in ("google.com", "wikipedia.org", "wiktionary.org"):
+                    domains.add(domain)
+            
+            # 2. Build Markdown Sources Table
+            sources_md = "\n### 🔍 Cited Sources & Reliability Map\n\n"
+            if domains:
+                sources_md += "| Source Domain | Safety Classification | Credibility Score |\n"
+                sources_md += "| :--- | :--- | :---: |\n"
+                for d in sorted(domains):
+                    eval_res = cred_scorer.evaluate_source(d)
+                    cat_name = eval_res.get("category", "general_web").replace("_", " ").title()
+                    score = eval_res.get("score", 60.0)
+                    
+                    if score >= 80:
+                        badge = f"🟢 {cat_name}"
+                    elif score >= 50:
+                        badge = f"🟡 {cat_name}"
+                    else:
+                        badge = f"🔴 {cat_name}"
+                        
+                    sources_md += f"| {d} | {badge} | `{score}%` |\n"
+            else:
+                sources_md += "*No external source domains could be automatically verified from the report citation lists.*\n"
+                
+            # 3. Consensus Scoring
+            report_lower = final_report.lower()
+            support_terms = ["supported", "true", "confirmed", "accurate", "correct", "verified"]
+            refute_terms = ["false", "debunked", "fake", "contradicted", "refuted", "misleading", "unreliable"]
+            
+            has_support = any(term in report_lower for term in support_terms)
+            has_refute = any(term in report_lower for term in refute_terms)
+            
+            consensus_rating = "Unknown"
+            consensus_desc = "Insufficient structured fact checking data to determine agreement level."
+            
+            if has_support and has_refute:
+                consensus_rating = "🟡 Divided / Controversial"
+                consensus_desc = "Web databases and Wikipedia articles present conflicting evidence or views regarding this claim."
+            elif has_support:
+                consensus_rating = "🟢 High Agreement (Verified)"
+                consensus_desc = "Sources in our credibility index are aligned in confirming the factual assertions of this claim."
+            elif has_refute:
+                consensus_rating = "🔴 Unanimous Contradiction (Debunked)"
+                consensus_desc = "Sources in our credibility index are aligned in refuting or debunking this claim."
+                
+            consensus_md = f"""
+### ⚖️ Source Consensus Analysis
+- **Consensus Status**: **{consensus_rating}**
+- **Explanation**: {consensus_desc}
+"""
+            # Append diagnostics to report
+            final_report = f"{final_report}\n\n---\n\n## 🛠️ TruthLens System Diagnostics\n{consensus_md}{sources_md}"
+
+            # Save report to local file for download
+            report_path = os.path.join(os.getcwd(), "truthlens_factcheck_report.md")
+            try:
+                with open(report_path, "w", encoding="utf-8") as f:
+                    f.write(final_report)
+                file_update = gr.update(value=report_path, visible=True)
+            except Exception:
+                file_update = gr.update(visible=False)
+
             result_payload = {
                 "verdict": verdict,
                 "confidence_score": confidence,
@@ -283,12 +364,12 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
             }
             memory.save_cache(sanitized, input_type, result_payload)
             current_status = "Verification completed and cached!"
-            yield get_verdict_html(verdict, confidence), confidence, final_report, current_status
+            yield get_verdict_html(verdict, confidence), confidence, final_report, current_status, file_update
         else:
-            yield get_verdict_html("Unverified", 50.0), 50.0, "### ⚠️ Verification Incomplete\nAgents finished but no report was returned. Try refining your prompt.", "Error"
+            yield get_verdict_html("Unverified", 50.0), 50.0, "### ⚠️ Verification Incomplete\nAgents finished but no report was returned. Try refining your prompt.", "Error", gr.update(visible=False)
             
     except Exception as e:
-        yield get_verdict_html("Unverified", 0.0), 0.0, f"### ❌ Execution Error\nAn error occurred while running the multi-agent system:\n`{str(e)}`", "Failed"
+        yield get_verdict_html("Unverified", 0.0), 0.0, f"### ❌ Execution Error\nAn error occurred while running the multi-agent system:\n`{str(e)}`", "Failed", gr.update(visible=False)
 
 # Get initial stats for dashboard
 def get_stats_html() -> str:
@@ -340,7 +421,41 @@ def select_general():
 
 # UI custom CSS injection for Outfit/Plus Jakarta typography, premium colors, and animations
 custom_css = """
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap');
+/* Enforce dark-theme CSS variables in both light and dark mode */
+:root, .dark {
+    --background-fill-primary: #0b0f19 !important;
+    --background-fill-secondary: #0f172a !important;
+    --block-background-fill: rgba(21, 28, 44, 0.65) !important;
+    --block-border-color: #1e293b !important;
+    --block-border-width: 1px !important;
+    
+    /* Text Colors */
+    --body-text-color: #cbd5e1 !important;
+    --body-text-color-subdued: #94a3b8 !important;
+    --block-title-text-color: #f8fafc !important;
+    --block-label-text-color: #94a3b8 !important;
+    --input-text-color: #f8fafc !important;
+    --input-placeholder-color: #475569 !important;
+    
+    /* Input Elements */
+    --input-background-fill: rgba(15, 23, 42, 0.8) !important;
+    --input-border-color: #1e293b !important;
+    --input-border-width: 1px !important;
+    
+    /* Buttons */
+    --button-primary-background-fill: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+    --button-primary-background-fill-hover: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+    --button-primary-text-color: white !important;
+    --button-secondary-background-fill: rgba(30, 41, 59, 0.4) !important;
+    --button-secondary-background-fill-hover: rgba(59, 130, 246, 0.1) !important;
+    --button-secondary-text-color: #94a3b8 !important;
+    --button-secondary-border-color: #1e293b !important;
+    
+    /* Tables */
+    --table-border-color: #1e293b !important;
+    --table-header-background-fill: rgba(30, 41, 59, 0.6) !important;
+    --table-row-background-fill: rgba(15, 23, 42, 0.4) !important;
+}
 
 * {
     font-family: 'Plus Jakarta Sans', 'Outfit', sans-serif !important;
@@ -348,6 +463,7 @@ custom_css = """
 
 body {
     background-color: #0b0f19 !important;
+    color: #cbd5e1 !important;
 }
 
 .gradio-container {
@@ -355,6 +471,11 @@ body {
     margin: 0 auto !important;
     padding-top: 40px !important;
     background-color: #0b0f19 !important;
+}
+
+/* Hide built-with Gradio footer branding completely */
+footer {
+    display: none !important;
 }
 
 /* Glassmorphism layouts */
@@ -425,9 +546,37 @@ body {
 .confidence-slider {
     background-color: transparent !important;
 }
+
+/* Force markdown rendering colors to behave under light mode settings */
+.prose p, .prose li, .prose span, .prose ul, .prose ol, .prose strong {
+    color: #cbd5e1 !important;
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+    color: #f8fafc !important;
+    font-weight: 700 !important;
+}
+
+.prose blockquote {
+    border-left-color: #3b82f6 !important;
+    color: #94a3b8 !important;
+    background: rgba(30, 41, 59, 0.2) !important;
+}
+
+.prose code {
+    color: #60a5fa !important;
+    background: rgba(15, 23, 42, 0.6) !important;
+}
+
+/* Custom styles for download File component to blend with glassmorphism */
+.file-preview {
+    background: rgba(15, 23, 42, 0.8) !important;
+    border: 1px solid #3b82f6 !important;
+    border-radius: 12px !important;
+}
 """
 
-with gr.Blocks() as demo:
+with gr.Blocks(title="TruthLens | Advanced Multi-Agent Fact-Checking System") as demo:
     # Font stylesheet injection
     gr.HTML("<link href='https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap' rel='stylesheet'>")
     
@@ -502,6 +651,7 @@ with gr.Blocks() as demo:
             
             # Markdown Report Output (Scroll down)
             gr.HTML("<h3 style='color: #f8fafc; margin-top: 35px; border-bottom: 1px solid #1e293b; padding-bottom: 10px; font-weight: 700;'>📋 Verification Report</h3>")
+            report_file = gr.File(label="📥 Download Markdown Report (.md)", visible=False)
             report_md = gr.Markdown(value=WELCOME_MESSAGE)
 
         # TAB 2: Cache & History Registry
@@ -527,7 +677,7 @@ with gr.Blocks() as demo:
     verify_btn.click(
         fn=process_verification,
         inputs=[user_text, image_upload, api_key_input],
-        outputs=[verdict_html, confidence_card, report_md, status_lbl]
+        outputs=[verdict_html, confidence_card, report_md, status_lbl, report_file]
     )
     
     def refresh_dashboard():

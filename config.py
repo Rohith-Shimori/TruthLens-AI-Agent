@@ -41,6 +41,6 @@ CREDIBILITY_MULTIPLIERS = {
     "general_news": 0.7,         # Standard commercial news outlets
     "social_media": 0.2,         # Twitter, Reddit, Facebook posts (unverified)
     "blog_forum": 0.3,           # Medium, Substack, forums (unless trusted author)
-    " satire_parody": 0.05,       # Onion, Babylon Bee
+    "satire_parody": 0.05,       # Onion, Babylon Bee
     "known_misinformation": 0.0  # Sites known to publish false claims
 }
