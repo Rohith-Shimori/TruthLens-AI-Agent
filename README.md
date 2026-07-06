@@ -6,7 +6,7 @@
 
 ### **Kaggle x Google AI Agents Capstone Submission**
 *   **Permanent Cloud Deployment:** [Hugging Face Space](https://huggingface.co/spaces/Rohith-Shimori/TruthLens-AI-Agent)
-*   **Local Gradio Tunnel Demo:** https://719d9f67316656d5e2.gradio.live
+*   **Evaluation Suite:** `python -m tests.eval_suite --report`
 *   **Kaggle Writeup Documentation:** [kaggle_writeup.md](docs/kaggle_writeup.md)
 
 TruthLens is an enterprise-grade, multi-agent fact-checking and misinformation detection system. It is designed to help users quickly verify claims spreading across social media (WhatsApp, Telegram, Twitter, LinkedIn) by orchestrating a pipeline of specialized AI agents.

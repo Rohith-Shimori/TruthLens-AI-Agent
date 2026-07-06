@@ -1,6 +1,10 @@
 import os
+import re
+import logging
 import requests
 import urllib.parse
+import ipaddress
+from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 import wikipediaapi
 from typing import List, Dict, Any, Optional
@@ -9,29 +13,55 @@ from google import genai
 from google.genai import types
 from src.inference import GOOGLE_API_KEY, DEFAULT_MODEL
 
+logger = logging.getLogger("TruthLens.Retrieval")
+
+# Singleton GenAI client cache
+_genai_client = None
+
 # Initialize Wikipedia API
 # Using a descriptive user_agent as required by Wikipedia policy
 wiki = wikipediaapi.Wikipedia(
     language='en',
     extract_format=wikipediaapi.ExtractFormat.WIKI,
-    user_agent="TruthLensFactChecker/1.0 (contact: capstone-project@truthlens.ai)"
+    user_agent="TruthLensFactChecker/1.0 (https://github.com/Rohith-Shimori/TruthLens-AI-Agent)"
 )
 
 def get_genai_client() -> Optional[genai.Client]:
-    """Helper to initialize the Google GenAI client."""
+    """Helper to initialize or return the cached Google GenAI client."""
+    global _genai_client
+    if _genai_client is not None:
+        return _genai_client
     api_key = GOOGLE_API_KEY or os.getenv("GOOGLE_API_KEY")
     if not api_key:
         return None
     try:
-        return genai.Client(api_key=api_key)
+        _genai_client = genai.Client(api_key=api_key)
+        return _genai_client
     except Exception as e:
-        print(f"Error initializing GenAI Client: {e}")
+        logger.error(f"Error initializing GenAI Client: {e}")
         return None
 
 def scrape_url(url: str) -> Dict[str, Any]:
-    """Scrapes the text content and metadata from a URL."""
+    """Scrapes the text content and metadata from a URL with SSRF protection."""
     if not url:
         return {"error": "Empty URL"}
+    
+    # SSRF Protection: Block private/internal IPs
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if hostname:
+            try:
+                ip = ipaddress.ip_address(hostname)
+                if ip.is_private or ip.is_loopback or ip.is_reserved:
+                    return {"error": "Internal/private URLs are not allowed for security reasons."}
+            except ValueError:
+                # hostname is a domain name, not IP — safe to proceed
+                blocked_domains = {'localhost', 'internal', 'intranet'}
+                if hostname.lower() in blocked_domains:
+                    return {"error": "Internal URLs are not allowed for security reasons."}
+    except Exception:
+        return {"error": f"Invalid URL: {url}"}
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -60,6 +90,7 @@ def scrape_url(url: str) -> Dict[str, Any]:
             "url": url
         }
     except Exception as e:
+        logger.warning(f"Failed to scrape URL {url}: {e}")
         return {"error": f"Failed to scrape URL {url}: {str(e)}", "url": url}
 
 def search_wikipedia(query: str) -> List[Dict[str, Any]]:
@@ -188,7 +219,7 @@ def search_google_grounding(query: str) -> List[Dict[str, Any]]:
                 if web:
                     results.append({
                         "title": web.title,
-                        "snippet": response.text[:500],  # Use response summary
+                        "snippet": getattr(web, 'snippet', '') or response.text[:500],
                         "url": web.uri,
                         "source": "Google Grounded Search"
                     })
@@ -217,27 +248,27 @@ def extract_text_from_image(image_path: str) -> Dict[str, Any]:
         return {"error": f"Image file not found: {image_path}"}
         
     try:
-        img = Image.open(image_path)
-        
-        prompt = (
-            "Perform high-precision OCR on this image. Extract all readable text. "
-            "Then, identify if the image is a social media post, a chat message (like WhatsApp or Telegram), "
-            "a news screenshot, or a meme. Describe any visual context, logos, or figures "
-            "that could be relevant to fact-checking. Format your response clearly."
-        )
-        
-        response = client.models.generate_content(
-            model=DEFAULT_MODEL,
-            contents=[img, prompt]
-        )
-        
-        return {
-            "text": response.text,
-            "image_type": "Processed image",
-            "metadata": {
-                "format": img.format,
-                "size": img.size
+        with Image.open(image_path) as img:
+            prompt = (
+                "Perform high-precision OCR on this image. Extract all readable text. "
+                "Then, identify if the image is a social media post, a chat message (like WhatsApp or Telegram), "
+                "a news screenshot, or a meme. Describe any visual context, logos, or figures "
+                "that could be relevant to fact-checking. Format your response clearly."
+            )
+            
+            response = client.models.generate_content(
+                model=DEFAULT_MODEL,
+                contents=[img, prompt]
+            )
+            
+            return {
+                "text": response.text,
+                "image_type": "Processed image",
+                "metadata": {
+                    "format": img.format,
+                    "size": img.size
+                }
             }
-        }
     except Exception as e:
+        logger.error(f"Failed to analyze image with Gemini: {e}")
         return {"error": f"Failed to analyze image with Gemini: {str(e)}"}

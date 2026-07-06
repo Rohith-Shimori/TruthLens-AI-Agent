@@ -1,0 +1,173 @@
+{
+  "timestamp": "2026-07-07T00:32:16",
+  "total_tests": 24,
+  "passed": 24,
+  "failed": 0,
+  "accuracy": 100.0,
+  "golden_dataset_size": 8,
+  "suites": {
+    "Security Manager": {
+      "passed": 6,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "HTML Sanitization",
+          "passed": true,
+          "input": "<script>alert('xss')</script>Hello World",
+          "output": "alert('xss')Hello World"
+        },
+        {
+          "name": "JavaScript URL Sanitization",
+          "passed": true
+        },
+        {
+          "name": "Prompt Injection Detection",
+          "passed": true,
+          "reason": "Input failed security validation: Triggered pattern 'ignore\\s+(?:all\\s+)?previous\\s+instructions'"
+        },
+        {
+          "name": "Safe Input Passes",
+          "passed": true
+        },
+        {
+          "name": "Rate Limit Enforcement",
+          "passed": true
+        },
+        {
+          "name": "Content Length Validation",
+          "passed": true
+        }
+      ]
+    },
+    "Credibility Scorer": {
+      "passed": 7,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "Credibility: reuters.com",
+          "passed": true,
+          "expected_min_score": 90.0,
+          "actual_score": 95.0,
+          "category": "trusted_news"
+        },
+        {
+          "name": "Credibility: bbc.com",
+          "passed": true,
+          "expected_min_score": 90.0,
+          "actual_score": 95.0,
+          "category": "trusted_news"
+        },
+        {
+          "name": "Credibility: infowars.com",
+          "passed": true,
+          "expected_min_score": 15.0,
+          "actual_score": 10.0,
+          "category": "known_misinformation"
+        },
+        {
+          "name": "Credibility: twitter.com",
+          "passed": true,
+          "expected_min_score": 35.0,
+          "actual_score": 30.0,
+          "category": "social_media"
+        },
+        {
+          "name": "Credibility: harvard.edu",
+          "passed": true,
+          "expected_min_score": 85.0,
+          "actual_score": 88.0,
+          "category": "academic"
+        },
+        {
+          "name": "Credibility: fda.gov",
+          "passed": true,
+          "expected_min_score": 80.0,
+          "actual_score": 85.0,
+          "category": "official_govt"
+        },
+        {
+          "name": "Credibility: snopes.com",
+          "passed": true,
+          "expected_min_score": 90.0,
+          "actual_score": 95.0,
+          "category": "trusted_news"
+        }
+      ]
+    },
+    "Bias Analyzer": {
+      "passed": 4,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "Neutral Text (Low Score)",
+          "passed": true,
+          "score": 0.0
+        },
+        {
+          "name": "Sensational Text (High Score)",
+          "passed": true,
+          "score": 100.0
+        },
+        {
+          "name": "Multi-word Phrase Detection",
+          "passed": true,
+          "score": 100.0
+        },
+        {
+          "name": "Bias Analysis Structure",
+          "passed": true
+        }
+      ]
+    },
+    "Memory Cache": {
+      "passed": 4,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "Cache Save",
+          "passed": true
+        },
+        {
+          "name": "Cache Retrieve",
+          "passed": true
+        },
+        {
+          "name": "Cache Miss",
+          "passed": true
+        },
+        {
+          "name": "Analytics Structure",
+          "passed": true,
+          "analytics": {
+            "total_verifications": 1,
+            "verdict_distribution": {
+              "True": 1
+            },
+            "average_confidence": 92.5
+          }
+        }
+      ]
+    },
+    "SSRF Protection": {
+      "passed": 3,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "Block: http://127.0.0.1:8080/admin",
+          "passed": true,
+          "result": "Internal/private URLs are not allowed for security reasons."
+        },
+        {
+          "name": "Block: http://localhost/internal",
+          "passed": true,
+          "result": "Internal URLs are not allowed for security reasons."
+        },
+        {
+          "name": "Block: http://169.254.169.254/metadata",
+          "passed": true,
+          "result": "Internal/private URLs are not allowed for security reasons."
+        }
+      ]
+    }
+  }
+}

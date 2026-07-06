@@ -1,3 +1,4 @@
+import html
 import gradio as gr
 
 # Default report placeholder (Premium Landing Intro)
@@ -234,7 +235,7 @@ def get_verdict_html(verdict: str, confidence: float) -> str:
         transition: all 0.3s ease;
     '>
         <div style='font-size: 48px; filter: drop-shadow(0 0 8px {glow_color});'>{style["emoji"]}</div>
-        <div style='font-size: 26px; font-weight: 800; color: {style["text"]}; margin-top: 10px; letter-spacing: 0.5px;'>OVERALL VERDICT: {verdict.upper()}</div>
-        <div style='font-size: 16px; color: #94a3b8; margin-top: 8px;'>TruthLens Confidence Level: <span style='font-weight: bold; color: #f8fafc;'>{confidence}%</span></div>
+        <div style='font-size: 26px; font-weight: 800; color: {style["text"]}; margin-top: 10px; letter-spacing: 0.5px;'>OVERALL VERDICT: {html.escape(verdict.upper())}</div>
+        <div style='font-size: 16px; color: #94a3b8; margin-top: 8px;'>TruthLens Confidence Level: <span style='font-weight: bold; color: #f8fafc;'>{confidence:.1f}%</span></div>
     </div>
     """

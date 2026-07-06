@@ -14,5 +14,21 @@
   {
     "claim": "Vaccines cause autism.",
     "category": "Health"
+  },
+  {
+    "claim": "5G cell towers spread COVID-19.",
+    "category": "Conspiracy"
+  },
+  {
+    "claim": "Humans use only 10% of their brain.",
+    "category": "Science"
+  },
+  {
+    "claim": "The Great Wall of China is visible from space.",
+    "category": "Geography"
+  },
+  {
+    "claim": "Lightning never strikes the same place twice.",
+    "category": "Science"
   }
 ]

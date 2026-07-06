@@ -1,8 +1,16 @@
+"""
+TruthLens MCP Server — Model Context Protocol Integration
+
+Exposes TruthLens fact-checking tools via FastMCP for external host applications.
+Demonstrates Day 2 Course Concept: Tools & Interoperability (MCP).
+"""
 import json
+import logging
 from fastmcp import FastMCP
-from src.tools import search_google_grounding, search_wikipedia
-from src.credibility import CredibilityScorer
-from src.bias_analyzer import BiasAnalyzer
+from src.retrieval import search_google_grounding, search_wikipedia
+from src.utils import CredibilityScorer, BiasAnalyzer
+
+logger = logging.getLogger("TruthLens.MCP")
 
 # Initialize FastMCP server
 mcp = FastMCP("TruthLens Verification Server")
@@ -20,7 +28,7 @@ def search_evidence(query: str) -> str:
     if not query:
         return json.dumps({"error": "Empty search query"})
         
-    print(f"[MCP] Searching evidence for: {query}")
+    logger.info(f"Searching evidence for: {query}")
     
     # 1. Wiki Search
     wiki_results = search_wikipedia(query)
@@ -45,7 +53,7 @@ def check_source_credibility(url: str) -> str:
     if not url:
         return json.dumps({"error": "Empty URL"})
         
-    print(f"[MCP] Checking credibility for URL: {url}")
+    logger.info(f"Checking credibility for URL: {url}")
     res = cred_scorer.evaluate_source(url)
     return json.dumps(res, indent=2)
 
@@ -58,7 +66,7 @@ def analyze_bias(text: str) -> str:
     if not text:
         return json.dumps({"error": "Empty text content"})
         
-    print(f"[MCP] Analyzing bias in text")
+    logger.info("Analyzing bias in text")
     res = bias_anal.analyze_bias_local(text)
     return json.dumps(res, indent=2)
 

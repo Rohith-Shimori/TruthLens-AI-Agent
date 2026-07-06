@@ -4,10 +4,13 @@ import time
 import sqlite3
 import hashlib
 import json
+import logging
 import urllib.parse
 from typing import Optional, Dict, Any, List, Tuple
 from pathlib import Path
 from dotenv import load_dotenv
+
+logger = logging.getLogger("TruthLens.Utils")
 
 # Load environment variables
 load_dotenv()
@@ -16,11 +19,8 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "data" / "cache" / "truthlens.db"
 
-# API Configurations
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-
-# Model Configuration
-DEFAULT_MODEL = "gemini-2.5-flash"
+# Cache TTL (Time-To-Live) in seconds — 7 days
+CACHE_TTL = int(os.getenv("CACHE_TTL", str(86400 * 7)))
 
 # Curated lists for source credibility
 RELIABLE_DOMAINS = {
@@ -80,8 +80,8 @@ class SecurityManager:
         # Trim whitespace
         return text.strip()
 
-    def check_rate_limit(self, identifier: str) -> bool:
-        """Checks if the request exceeds the rate limit. Returns True if OK, False if rate limited."""
+    def check_rate_limit(self, identifier: str) -> Dict[str, Any]:
+        """Checks if the request exceeds the rate limit. Returns dict with 'allowed' key."""
         now = time.time()
         if identifier not in self.request_history:
             self.request_history[identifier] = []
@@ -93,10 +93,10 @@ class SecurityManager:
         ]
         
         if len(self.request_history[identifier]) >= self.max_requests:
-            return False
+            return {"allowed": False, "reason": "Rate limit exceeded. Please wait."}
             
         self.request_history[identifier].append(now)
-        return True
+        return {"allowed": True}
 
     def detect_prompt_injection(self, text: str) -> Tuple[bool, str]:
         """Scans input for prompt injection signatures. Returns (is_injection, reason)."""
@@ -126,8 +126,9 @@ class MemoryManager:
         self._init_db()
 
     def _init_db(self):
-        """Initializes the SQLite database and creates the schema if it doesn't exist."""
-        conn = sqlite3.connect(self.db_path)
+        """Initializes the SQLite database with WAL mode for thread safety."""
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
         
         # Table for caching full verifications
@@ -162,13 +163,14 @@ class MemoryManager:
         conn.close()
 
     def _get_hash(self, text: str) -> str:
-        """Returns MD5 hash of text for quick lookup."""
-        return hashlib.md5(text.encode('utf-8')).hexdigest()
+        """Returns SHA-256 hash of text for quick lookup."""
+        return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
     def check_cache(self, text: str) -> Optional[Dict[str, Any]]:
-        """Checks if a similar verification already exists in the cache."""
+        """Checks if a similar verification already exists in the cache (with TTL)."""
         h = self._get_hash(text)
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -177,26 +179,37 @@ class MemoryManager:
             (h,)
         )
         row = cursor.fetchone()
-        conn.close()
         
         if row:
-            # Convert SQLite row back to dictionary and parse JSON fields
             data = dict(row)
+            # Check if cache entry has expired (TTL)
+            created_at = data.get('created_at', 0)
+            if (int(time.time()) - created_at) > CACHE_TTL:
+                # Expired — delete stale entry
+                cursor.execute("DELETE FROM verification_cache WHERE content_hash = ?", (h,))
+                conn.commit()
+                conn.close()
+                logger.info(f"Cache entry expired for hash {h[:12]}...")
+                return None
+            
             try:
                 data['claims'] = json.loads(data['claims'])
                 data['evidence'] = json.loads(data['evidence'])
                 data['bias_analysis'] = json.loads(data['bias_analysis'])
                 data['credibility_analysis'] = json.loads(data['credibility_analysis'])
+                conn.close()
                 return data
             except json.JSONDecodeError:
-                # If JSON parsing fails, cache might be corrupted, so return None
+                conn.close()
                 return None
+        conn.close()
         return None
 
     def save_cache(self, text: str, input_type: str, result: Dict[str, Any]):
         """Saves a verification result to the cache."""
         h = self._get_hash(text)
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
         
         try:
@@ -219,13 +232,14 @@ class MemoryManager:
             ))
             conn.commit()
         except Exception as e:
-            print(f"Error saving to database cache: {e}")
+            logger.error(f"Error saving to database cache: {e}")
         finally:
             conn.close()
 
     def get_recent_verifications(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Returns recent verification items from cache for history visualization."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -240,7 +254,8 @@ class MemoryManager:
 
     def get_analytics(self) -> Dict[str, Any]:
         """Gathers stats/analytics on stored entries."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
         
         cursor.execute("SELECT COUNT(*) FROM verification_cache")
@@ -397,34 +412,34 @@ class CredibilityScorer:
 
 class BiasAnalyzer:
     def __init__(self):
-        # Sensationalism and emotional words common in clickbait/fake news
-        self.sensational_words = {
+        # Single-word sensational terms
+        self.sensational_single_words = {
             "shocking", "exposed", "destroy", "scandal", "conspiracy", "secret", 
-            "unbelievable", "must read", "miracle", "furious", "slams", "blasts", 
-            "epic", "mind-blowing", "insane", "hiding", "truth about", "revealed",
-            "horrific", "tragedy", "miraculous", "plot", "cover-up", "cabal"
+            "unbelievable", "miracle", "furious", "slams", "blasts", 
+            "epic", "insane", "hiding", "revealed",
+            "horrific", "tragedy", "miraculous", "plot", "cabal"
         }
         
-        self.logical_fallacies = {
-            "ad_hominem": "Attacking the person rather than the argument.",
-            "strawman": "Misrepresenting an opponent's position to make it easier to attack.",
-            "false_dichotomy": "Presenting only two options when more exist.",
-            "appeal_to_emotion": "Manipulating emotions to win an argument rather than using facts.",
-            "slippery_slope": "Asserting that a relatively small step will inevitably lead to a chain of negative events.",
-            "hasty_generalization": "Drawing a conclusion based on a small or non-representative sample."
+        # Multi-word sensational phrases
+        self.sensational_phrases = {
+            "must read", "mind-blowing", "truth about", "cover-up", "cover up"
         }
 
     def calculate_sensationalism_score(self, text: str) -> float:
-        """Heuristically calculates sensationalism score based on word matching and punctuation."""
+        """Heuristically calculates sensationalism score based on word matching, phrases, and punctuation."""
         if not text:
             return 0.0
             
-        words = re.findall(r'\b\w+\b', text.lower())
+        text_lower = text.lower()
+        words = re.findall(r'\b\w+\b', text_lower)
         if not words:
             return 0.0
             
-        # Count matchings
-        match_count = sum(1 for w in words if w in self.sensational_words)
+        # Count single-word matches
+        match_count = sum(1 for w in words if w in self.sensational_single_words)
+        
+        # Count multi-word phrase matches
+        phrase_count = sum(1 for phrase in self.sensational_phrases if phrase in text_lower)
         
         # Check punctuation alerts (excessive exclamation or question marks)
         exclamations = len(re.findall(r'!{2,}', text))
@@ -432,7 +447,8 @@ class BiasAnalyzer:
         all_caps_words = sum(1 for w in re.findall(r'\b[A-Z]{4,}\b', text))
         
         # Scoring scale (0 - 100)
-        base_score = (match_count / len(words)) * 1000  # scaled
+        total_matches = match_count + phrase_count
+        base_score = (total_matches / max(len(words), 1)) * 500  # scaled more reasonably
         punct_bonus = (exclamations * 10) + (question_marks * 5) + (all_caps_words * 4)
         
         final_score = min(base_score + punct_bonus, 100.0)
@@ -443,7 +459,7 @@ class BiasAnalyzer:
         sensationalism = self.calculate_sensationalism_score(text)
         
         # Basic text structure features
-        all_caps_count = len(re.findall(r'\b[A-Z]{3,}\b', text))
+        all_caps_count = len(re.findall(r'\b[A-Z]{4,}\b', text))
         exclamation_count = text.count("!")
         
         # Determine rating

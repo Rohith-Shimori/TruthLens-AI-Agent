@@ -2,14 +2,26 @@ import os
 import time
 import json
 import re
+import logging
+import html as html_module
 import gradio as gr
 from typing import Tuple, Generator, Optional, Any
+from dotenv import set_key as dotenv_set_key
 
 # Import modular components from package structure
+import src.inference
 from src.inference import GOOGLE_API_KEY
-from src.utils import SecurityManager, MemoryManager, CredibilityScorer, BiasAnalyzer
+from src.utils import SecurityManager, MemoryManager, CredibilityScorer, BiasAnalyzer, DB_PATH
 from src.pipeline import run_truthlens_verification
 from src.ui import custom_css, get_verdict_html, WELCOME_MESSAGE
+
+# Configure structured logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(name)s] %(levelname)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger("TruthLens")
 
 # Initialize managers
 security = SecurityManager()
@@ -113,6 +125,12 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
         yield get_verdict_html("Unverified", 0.0), 0.0, "### ❌ Input Required\nPlease provide either a URL, raw text, or upload an image screenshot.", "Ready", gr.update(visible=False)
         return
 
+    # 1b. Rate limiting check
+    rate_check = security.check_rate_limit("global_user")
+    if not rate_check["allowed"]:
+        yield get_verdict_html("Unverified", 0.0), 0.0, "### ⚠️ Rate Limited\nToo many requests. Please wait a moment before trying again.", "⚠️ Rate Limited", gr.update(visible=False)
+        return
+
     # 2. Security validation
     sanitized = security.sanitize_input(target_input) if input_type != "image" else target_input
     
@@ -128,7 +146,7 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
 
     # 3. Check SQLite memory cache
     yield get_verdict_html("Processing", 20.0), 20.0, "### 🔍 Searching cache...\nRetrieving matching verification payloads from local SQLite index.", "Checking database cache...", gr.update(visible=False)
-    time.sleep(1.0)
+    time.sleep(0.5)
     
     cached = memory.check_cache(sanitized)
     if cached:
@@ -158,7 +176,7 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
         cached_report += f"- **Sensationalism Score**: {bias.get('sensationalism_score', 0)}/100 ({bias.get('sensationalism_rating', 'Objective')})\n"
         
         # Save to file for download
-        report_path = os.path.join(os.getcwd(), "truthlens_factcheck_report.md")
+        report_path = os.path.join(os.getcwd(), f"truthlens_report_{int(time.time())}.md")
         try:
             with open(report_path, "w", encoding="utf-8") as f:
                 f.write(cached_report)
@@ -300,10 +318,9 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
             # Auto-save API key to .env if provided and not already saved
             if api_key:
                 try:
-                    with open(".env", "w") as f:
-                        f.write(f"GOOGLE_API_KEY={api_key}\n")
+                    dotenv_set_key(".env", "GOOGLE_API_KEY", api_key)
                 except Exception as e:
-                    print(f"Failed to auto-save API key: {e}")
+                    logger.warning(f"Failed to auto-save API key: {e}")
                     
             if not extracted_claims:
                 extracted_claims = [{"claim_text": "Original Query Factual Assertions"}]
@@ -433,7 +450,7 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
             final_report = f"{final_report}\n\n---\n\n## 🛠️ TruthLens System Diagnostics\n{consensus_md}{sources_md}\n\n{trace_md}"
 
             # Save report to local file for download
-            report_path = os.path.join(os.getcwd(), "truthlens_factcheck_report.md")
+            report_path = os.path.join(os.getcwd(), f"truthlens_report_{int(time.time())}.md")
             try:
                 with open(report_path, "w", encoding="utf-8") as f:
                     f.write(final_report)
@@ -458,24 +475,8 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
             current_status = "Verification completed and cached!"
             yield get_verdict_html(verdict, confidence), confidence, final_report, current_status, file_update
         else:
-            # Check if it was a quota issue
-            quota_issue = False
-            try:
-                from google import genai
-                client = genai.Client(api_key=active_key)
-                client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents="test",
-                )
-            except Exception as e:
-                error_msg = str(e)
-                if "quota" in error_msg.lower() or "429" in error_msg:
-                    quota_issue = True
-            
-            if quota_issue:
-                yield get_verdict_html("Unverified", 0.0), 0.0, "### ⚠️ Gemini API Quota Exceeded\nYour API key ran out of quota during execution. Please try again later or use a different key.", "Quota Exceeded", gr.update(visible=False)
-            else:
-                yield get_verdict_html("Unverified", 50.0), 50.0, "### ⚠️ Verification Incomplete\nAgents finished but no report was returned. Try refining your prompt.", "Error", gr.update(visible=False)
+            logger.warning("Pipeline completed but no report was generated.")
+            yield get_verdict_html("Unverified", 50.0), 50.0, "### ⚠️ Verification Incomplete\nAgents finished but no report was returned. Try refining your prompt or check your API quota.", "Error", gr.update(visible=False)
             
     except Exception as e:
         error_msg = str(e)
@@ -485,11 +486,10 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
             yield get_verdict_html("Unverified", 0.0), 0.0, f"### ❌ Execution Error\nAn error occurred while running the multi-agent system:\n`{error_msg}`", "Failed", gr.update(visible=False)
 
 def clear_cache_db():
-    print("[TruthLens] Clearing verification cache database...")
+    logger.info("Clearing verification cache database...")
     try:
         import sqlite3
-        from config import DB_PATH
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(str(DB_PATH))
         cursor = conn.cursor()
         cursor.execute("DROP TABLE IF EXISTS verification_cache")
         conn.commit()
@@ -498,6 +498,7 @@ def clear_cache_db():
         memory._init_db()
         return get_stats_html(), get_history_table(), "<span style='color: #10b981; font-weight: bold;'>🟢 Cache database cleared successfully!</span>"
     except Exception as e:
+        logger.error(f"Cache clear failed: {e}")
         return get_stats_html(), get_history_table(), f"<span style='color: #ef4444; font-weight: bold;'>🔴 Clear failed: {str(e)}</span>"
 
 # Get initial stats for dashboard
@@ -551,12 +552,12 @@ def verify_and_connect_api_key(key: str) -> str:
         
         # Write to .env automatically to save it
         try:
-            with open(".env", "w") as f:
-                f.write(f"GOOGLE_API_KEY={clean_key}\n")
-            global GOOGLE_API_KEY
-            GOOGLE_API_KEY = clean_key
+            dotenv_set_key(".env", "GOOGLE_API_KEY", clean_key)
+            # Propagate key to all modules that use it
+            src.inference.GOOGLE_API_KEY = clean_key
+            os.environ["GOOGLE_API_KEY"] = clean_key
         except Exception as e:
-            print(f"Failed to auto-save API key: {e}")
+            logger.warning(f"Failed to auto-save API key: {e}")
             
         return "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #10b981; font-weight: bold;'>🟢 Connection Successful! Key is active and linked to agents. (Saved to .env)</span></div>"
     except Exception as e:

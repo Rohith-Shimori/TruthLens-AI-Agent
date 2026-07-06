@@ -8,9 +8,8 @@
 *   **Track Selection:** Agents for Good (Misinformation Detection & Digital Literacy)
 *   **GitHub Repository:** https://github.com/Rohith-Shimori/TruthLens-AI-Agent.git
 *   **Interactive Demo Link (Hugging Face):** [Hugging Face Space](https://huggingface.co/spaces/Rohith-Shimori/TruthLens-AI-Agent) (Permanent Cloud Deployment)
-*   **Interactive Demo Link (Local Tunnel):** https://719d9f67316656d5e2.gradio.live (Temporary Live Demo)
-*   **Video Demo:** [Provide your YouTube/Vimeo Video link here]
-*   **Technologies Used:** Google Agent Development Kit (ADK) 2.0, Gemini 2.5 Flash, FastMCP, Gradio, SQLite, Python, OpenTelemetry
+*   **Video Demo:** *(Coming Soon)*
+*   **Technologies Used:** Google Agent Development Kit (ADK) 2.0, Gemini 2.5 Flash, FastMCP, Gradio, SQLite, Python
 
 ---
 
@@ -92,20 +91,21 @@ truthlens_workflow = Workflow(
 This guarantees that each agent operates only on the structured outputs of its predecessors, minimizing hallucinations and ensuring logical coherence.
 
 ### B. Model Context Protocol (MCP)
-We built a custom MCP server (`mcp_server.py`) using **FastMCP** that exposes fact-checking tools to the orchestrator:
-*   `search_evidence`: Combines Wikipedia and Google grounding.
+We built a standalone MCP server (`mcp_server.py`) using **FastMCP** that exposes TruthLens fact-checking tools to any compatible host application:
+*   `search_evidence`: Combines Wikipedia and Google grounding search.
 *   `check_source_credibility`: Reviews domain reputation.
-*   `analyze_bias`: Examines text sentiment.
-This demonstrates clean decoupling of agent reasoning from tool execution, allowing the server to be plugged into other host applications.
+*   `analyze_bias`: Examines text sentiment and sensationalism.
+This demonstrates clean decoupling of agent reasoning from tool execution, allowing the tools to be plugged into external MCP-compatible clients independently of the ADK pipeline.
 
-### C. Smart Session Memory (SQLite Cache)
-To resolve latency and API cost challenges, TruthLens implements a local SQLite caching system (`memory.py`). When a query is submitted, it is hashed (MD5). A cache hit bypasses the LLM pipeline and immediately serves the cached report (sub-second retrieval). Cache misses are executed and then saved, keeping the database updated.
+### C. Smart Session Memory (SQLite Cache with TTL)
+To resolve latency and API cost challenges, TruthLens implements a local SQLite caching system (`MemoryManager` class in `src/utils.py`). When a query is submitted, it is hashed (SHA-256). A cache hit bypasses the LLM pipeline and immediately serves the cached report (sub-second retrieval). Cache entries expire after 7 days (configurable TTL) to ensure freshness. The database uses WAL mode for thread-safe concurrent access.
 
-### D. Security Gatekeeping (`security.py`)
+### D. Security Gatekeeping (`SecurityManager` in `src/utils.py`)
 To prevent exploitation of the agent network, we implemented:
 *   **Input Sanitization:** Strips HTML/script tags to prevent injection.
 *   **Prompt Injection Detection:** Scans for keywords attempting to override instructions (e.g., "ignore previous instructions").
-*   **Rate Limiting:** Employs an IP/user rate-limiting sliding window to protect resources.
+*   **Rate Limiting:** Employs a sliding-window rate limiter to protect resources.
+*   **SSRF Protection:** Blocks requests to private/internal IP ranges and localhost.
 
 ### E. Deployability (Docker & Cloud Run)
 The project includes a multi-stage `Dockerfile` built on `python:3.12-slim` and optimized using the `uv` package manager. This makes the system containerized, portable, and ready for deployment to **Google Cloud Run** in seconds.
@@ -122,6 +122,16 @@ agent_retry = RetryConfig(
 )
 ```
 This isolates the agent execution loop from temporary provider failures and increases overall verification accuracy.
+
+### G. Evaluation Suite (Day 4: Agent Quality)
+To demonstrate reliability and production-readiness, TruthLens includes a comprehensive evaluation suite (`tests/eval_suite.py`) with a golden dataset of 8 curated claims spanning science, health, conspiracy theories, and geography. The suite runs 22+ automated tests across 5 categories:
+*   **Security Tests:** Validates HTML sanitization, prompt injection detection, and rate limiting enforcement.
+*   **Credibility Tests:** Verifies domain classification accuracy for trusted, unreliable, and social media sources.
+*   **Bias Tests:** Validates sensationalism scoring for neutral vs. inflammatory text, including multi-word phrase detection.
+*   **Cache Tests:** Tests save/retrieve operations, cache misses, and analytics structure.
+*   **SSRF Tests:** Confirms that internal/private URLs are blocked.
+
+Run with: `python -m tests.eval_suite --report`
 
 ---
 
@@ -143,9 +153,10 @@ To deliver maximum user value and a compelling "Wow" factor for evaluation, Trut
 ## 5. 📈 Results & Future Enhancements
 
 ### Key Results:
-*   **Efficiency:** Caching reduced the average lookup time for duplicate claims from ~15 seconds to **0.05 seconds**.
+*   **Efficiency:** Caching reduced the average lookup time for duplicate claims from ~15 seconds to **0.05 seconds**. Cache entries automatically expire after 7 days.
 *   **Robustness:** Dual-source web grounding and Wikipedia lookups provided stable citations even when claims were highly niche or regional.
 *   **Visual Accuracy:** Gemini Vision OCR successfully extracted text from compressed mobile screenshots (e.g., forwarded WhatsApp messages).
+*   **Evaluation:** The offline test suite achieves 22/22 passing tests across security, credibility, bias analysis, caching, and SSRF protection modules.
 
 ### Future Roadmap:
 1.  **Multi-lingual Support:** Adding translation agents to verify local/regional language misinformation.
