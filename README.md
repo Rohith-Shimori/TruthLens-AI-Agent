@@ -1,5 +1,9 @@
 # 🛡️ TruthLens: Advanced Multi-Agent Misinformation Detection System
 
+<p align="center">
+  <img src="assets/logo.png" width="160" alt="TruthLens Logo">
+</p>
+
 ### **Kaggle x Google AI Agents Capstone Submission**
 *   **Live Web Demo:** https://719d9f67316656d5e2.gradio.live
 *   **Kaggle Writeup Documentation:** [kaggle_writeup.md](docs/kaggle_writeup.md)
@@ -14,37 +18,9 @@ Built using the **Google Agent Development Kit (ADK) 2.0**, **Gemini 2.5 Flash**
 
 TruthLens employs a sequential multi-agent graph containing 7 specialized agents:
 
-```
-                  User Input (URL, Text, Image)
-                               │
-                               ▼
-            ┌───────────────────────────────────────┐
-            │        TruthLens Orchestrator         │
-            │         (Workflow Graph - ADK)        │
-            └───────────────────────────────────────┘
-                               │
-                               ▼
-    ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-    │  1. Ingestion   │  │  2. Claim       │  │  3. Evidence    │
-    │     Agent       │ →│  Extractor      │ →│  Retriever      │
-    │ (Scrapes URLs,  │  │ (Isolates facts │  │ (Grounded web & │
-    │  OCR screenshots)│  │  to verify)     │  │  Wikipedia API) │
-    └─────────────────┘  └─────────────────┘  └────────┬────────┘
-                                                       │
-                                                       ▼
-    ┌─────────────────┐  ┌─────────────────┐  ┌────────┴────────┐
-    │  6. Verdict     │  │  5. Bias &      │  │  4. Source      │
-    │     Engine      │ ←│  Sentiment      │ ←│  Credibility    │
-    │ (Determines claim│  │  Analyzer      │  │  Scorer         │
-    │  veracity)      │  │ (Sensationalism)│  │ (Domain indexes)│
-    └────────┬────────┘  └─────────────────┘  └─────────────────┘
-             │
-             ▼
-    ┌─────────────────┐
-    │  7. Report      │ → Generates detailed markdown report
-    │  Generator      │   with evidence citation cards.
-    └─────────────────┘
-```
+<p align="center">
+  <img src="assets/architecture.png" width="650" alt="TruthLens Multi-Agent Architecture">
+</p>
 
 ---
 
