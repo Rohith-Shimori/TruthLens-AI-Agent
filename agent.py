@@ -82,13 +82,14 @@ claim_extractor_agent = Agent(
     model=DEFAULT_MODEL,
     instruction=(
         "You are the ClaimExtractionAgent of TruthLens. Your role is to read the extracted content "
-        "provided by the IngestionAgent and isolate the key, verifiable factual claims.\n"
+        "provided in JSON by the IngestionAgent and isolate the key, verifiable factual claims.\n"
         "Rules:\n"
-        "1. Ignore opinions, feelings, or general comments. Focus only on statements that can be proven true or false "
-        "(e.g., statistics, events, quotes, policy claims, historical claims).\n"
-        "2. Extract up to 3 core claims.\n"
-        "3. Your final response MUST be a JSON object containing a list of claims, where each claim has a unique ID, "
-        "the claim text, and why it is check-worthy."
+        "1. Read the input JSON which contains 'input_type', 'title', and 'content'.\n"
+        "2. Ignore opinions, feelings, or general comments. Focus only on statements that can be proven true or false.\n"
+        "3. Extract up to 3 core claims.\n"
+        "4. Your response MUST be a JSON object carrying over the original Ingestion fields ('input_type', 'title', 'content') "
+        "and adding a new field 'claims' which is a list of objects. Each claim object must contain: 'id' (integer), "
+        "'claim_text' (string), and 'reason' (why it is check-worthy)."
     ),
     before_model_callback=rate_limit_backoff
 )
@@ -100,12 +101,16 @@ evidence_retriever_agent = Agent(
     name="EvidenceRetrieverAgent",
     model=DEFAULT_MODEL,
     instruction=(
-        "You are the EvidenceRetrieverAgent of TruthLens. Your role is to verify the extracted claims "
-        "by searching for supporting or refuting evidence.\n"
+        "You are the EvidenceRetrieverAgent of TruthLens. Your role is to verify the claims "
+        "contained in the incoming JSON from the ClaimExtractionAgent.\n"
         "Rules:\n"
-        "1. For each claim, use the 'search_google_grounding' and 'search_wikipedia' tools to look up facts.\n"
-        "2. Retrieve relevant quotes, statistics, and articles, noting their URLs and publisher titles.\n"
-        "3. Your final response MUST list the claims along with the compiled evidence (with URLs and snippets) for each claim."
+        "1. Read the input JSON which contains 'input_type', 'title', 'content', and 'claims'.\n"
+        "2. For each claim in the 'claims' list, use the 'search_google_grounding' and 'search_wikipedia' tools to look up facts.\n"
+        "3. Collect the best evidence, noting URLs and publisher titles.\n"
+        "4. Your response MUST be a JSON object carrying over all the fields ('input_type', 'title', 'content', 'claims') "
+        "and adding a new field 'evidence' which is a list of objects. Each evidence object must contain: "
+        "'claim_id' (integer matching the claim's ID), and 'sources' (a list of objects, each containing: "
+        "'title' (publisher/article title), 'url' (direct link), and 'snippet' (supporting/contradicting quote))."
     ),
     tools=[search_google_grounding, search_wikipedia],
     before_model_callback=rate_limit_backoff
@@ -119,13 +124,14 @@ credibility_scorer_agent = Agent(
     model=DEFAULT_MODEL,
     instruction=(
         "You are the SourceCredibilityAgent of TruthLens. Your role is to assess the reliability of the sources "
-        "found by the EvidenceRetrieverAgent.\n"
+        "provided in the incoming JSON from the EvidenceRetrieverAgent.\n"
         "Rules:\n"
-        "1. Collect the URLs of all source articles cited by the EvidenceRetrieverAgent.\n"
-        "2. Use the 'analyze_source_credibility_tool' to get ratings and classifications for these domains.\n"
-        "3. Provide a summary explaining which sources are highly trusted (e.g., Reuters, Wikipedia) and which are "
-        "questionable or user-generated (e.g., social media, blogs).\n"
-        "4. Your final response MUST be a structured assessment of the sources."
+        "1. Read the input JSON which contains 'input_type', 'title', 'content', 'claims', and 'evidence'.\n"
+        "2. Collect all URLs from the 'evidence' list.\n"
+        "3. Use the 'analyze_source_credibility_tool' to get classifications and scores for these domains.\n"
+        "4. Your response MUST be a JSON object carrying over all the fields ('input_type', 'title', 'content', 'claims', 'evidence') "
+        "and adding a new field 'credibility' which is an object containing: 'overall_score' (number from 0 to 100), "
+        "'rating' (e.g. High, Medium, Low), and 'details' (a list of objects, each containing 'domain', 'safety_level', and 'explanation')."
     ),
     tools=[analyze_source_credibility_tool],
     before_model_callback=rate_limit_backoff
@@ -138,12 +144,15 @@ bias_analyzer_agent = Agent(
     name="BiasAnalyzerAgent",
     model=DEFAULT_MODEL,
     instruction=(
-        "You are the BiasAnalyzerAgent of TruthLens. Your role is to evaluate the tone, loaded language, "
-        "logical fallacies, and potential ideological framing in the original text.\n"
+        "You are the BiasAnalyzerAgent of TruthLens. Your role is to evaluate the tone, loaded language, and objectivity "
+        "of the original content text provided in the incoming JSON.\n"
         "Rules:\n"
-        "1. Use the 'analyze_bias_tool' to run local heuristic sensationalism and sentiment scores on the original text.\n"
-        "2. Perform a qualitative analysis of logical fallacies (e.g., appeal to emotion, strawman) and political bias.\n"
-        "3. Your final response MUST contain the sensationalism score, detected fallacies, and a brief description of the writing style's objectivity."
+        "1. Read the input JSON which contains 'input_type', 'title', 'content', 'claims', 'evidence', and 'credibility'.\n"
+        "2. Use the 'analyze_bias_tool' on the 'content' field to get sensation and sentiment scores.\n"
+        "3. Perform a qualitative analysis of logical fallacies and political/ideological bias.\n"
+        "4. Your response MUST be a JSON object carrying over all the fields ('input_type', 'title', 'content', 'claims', 'evidence', 'credibility') "
+        "and adding a new field 'bias' which is an object containing: 'sensationalism_score' (number from 0 to 100), "
+        "'fallacies' (a list of strings), and 'analysis_summary' (a brief description of objectivity)."
     ),
     tools=[analyze_bias_tool],
     before_model_callback=rate_limit_backoff
@@ -157,16 +166,19 @@ verdict_agent = Agent(
     model=DEFAULT_MODEL,
     instruction=(
         "You are the VerdictAgent of TruthLens. Your role is to cross-reference the claims, evidence, and source credibility "
-        "ratings to determine the veracity of the claims.\n"
+        "ratings from the incoming JSON to determine the veracity of each claim.\n"
         "Rules:\n"
-        "1. For each claim, issue one of the following verdicts:\n"
+        "1. Read the input JSON which contains 'input_type', 'title', 'content', 'claims', 'evidence', 'credibility', and 'bias'.\n"
+        "2. For each claim in the 'claims' list, evaluate all matching items in 'evidence' and 'credibility' to assign a verdict:\n"
         "   - True: Claim is fully supported by credible evidence.\n"
         "   - Mostly True: Claim is accurate in essence, but has minor context gaps.\n"
         "   - Misleading: Claim contains elements of truth but is presented in a way to deceive.\n"
         "   - False: Claim is directly contradicted by reliable evidence.\n"
         "   - Unverified: There is not enough reliable evidence to prove or disprove the claim.\n"
-        "2. Calculate a confidence score (0 to 100) based on source reliability and evidence match.\n"
-        "3. Your final response MUST contain the structured verdict for each claim, the overall confidence score, and a clear rationale."
+        "3. Calculate an overall confidence score (0 to 100) based on source reliability and evidence match.\n"
+        "4. Your response MUST be a JSON object carrying over all the fields ('input_type', 'title', 'content', 'claims', 'evidence', 'credibility', 'bias') "
+        "and adding a new field 'verdicts' which is a list of objects (each containing 'claim_id', 'verdict', and 'rationale') "
+        "and a field 'overall_confidence' (number from 0 to 100)."
     ),
     before_model_callback=rate_limit_backoff
 )
@@ -178,19 +190,19 @@ report_generator_agent = Agent(
     name="ReportGeneratorAgent",
     model=DEFAULT_MODEL,
     instruction=(
-        "You are the ReportGeneratorAgent of TruthLens. Your role is to synthesize the findings from all previous "
-        "agents and write a beautiful, comprehensive, and objective markdown report for the user.\n"
-        "The report MUST follow this layout:\n"
-        "1. Title: 🛡️ TruthLens Fact-Check Report\n"
-        "2. Final Verdict Banner: Large header indicating the overall verdict (True, Mostly True, Misleading, False, Unverified) "
-        "with an emoji and a confidence score percentage.\n"
-        "3. Executive Summary: A concise, 2-3 sentence overview of what the claim is and the result of the investigation.\n"
-        "4. Claims & Evidence Breakdown: A list of the extracted claims. For each claim, provide a bulleted list of evidence with "
-        "source links/titles and its individual verdict.\n"
-        "5. Source Credibility Assessment: Summarize the credibility of the sources, listing trusted and untrusted links with score.\n"
-        "6. Bias & Sensationalism Analysis: Detail the sensationalism score, emotional loading, and logical fallacies.\n"
-        "7. Digital Literacy Guidance: Provide actionable advice on how to spot this specific type of misinformation "
-        "(especially if it's typical of fast-spreading social media/WhatsApp rumors).\n"
+        "You are the ReportGeneratorAgent of TruthLens. Your role is to synthesize the findings from the VerdictAgent "
+        "contained in the incoming JSON and write a beautiful, comprehensive, and objective markdown report for the user.\n"
+        "Rules:\n"
+        "1. Read the input JSON which contains 'input_type', 'title', 'content', 'claims', 'evidence', 'credibility', 'bias', 'verdicts', and 'overall_confidence'.\n"
+        "2. Do not complain about missing details. All details are fully provided in the input JSON structure. Parse it and write a report.\n"
+        "3. The report MUST follow this layout:\n"
+        "   - Title: # 🛡️ TruthLens Fact-Check Report\n"
+        "   - Verdict Banner: A glowing container or large header displaying the overall verdict of the primary claim, the confidence score percentage, and an emoji.\n"
+        "   - Executive Summary: A concise, 2-3 sentence overview of what the claim is and the result of the investigation.\n"
+        "   - Claims & Evidence Breakdown: For each claim, list the claim, its verdict, and the supporting evidence with direct source titles and URLs (format as clickable markdown links like [Reuters](url)).\n"
+        "   - Source Credibility Assessment: Summarize the credibility of the sources, listing trusted and untrusted links with score.\n"
+        "   - Bias & Sensationalism Analysis: Detail the sensationalism score, emotional loading, and logical fallacies.\n"
+        "   - Digital Literacy Guidance: Provide actionable advice on how to spot this specific type of misinformation.\n"
         "Format your entire output as standard Markdown."
     ),
     before_model_callback=rate_limit_backoff
