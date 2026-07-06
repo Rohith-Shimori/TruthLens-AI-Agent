@@ -7,8 +7,9 @@
 ## 📋 Project Metadata
 *   **Track Selection:** Agents for Good (Misinformation Detection & Digital Literacy)
 *   **GitHub Repository:** https://github.com/Rohith-Shimori/TruthLens-AI-Agent.git
+*   **Interactive Demo Link:** https://90407c95186370ea80.gradio.live (Live Web Demo)
 *   **Video Demo:** [Provide your YouTube/Vimeo Video link here]
-*   **Technologies Used:** Google Agent Development Kit (ADK) 2.0, Gemini 2.5 Flash, FastMCP, Gradio, SQLite, Python
+*   **Technologies Used:** Google Agent Development Kit (ADK) 2.0, Gemini 2.5 Flash, FastMCP, Gradio, SQLite, Python, OpenTelemetry
 
 ---
 
@@ -108,6 +109,19 @@ To prevent exploitation of the agent network, we implemented:
 ### E. Deployability (Docker & Cloud Run)
 The project includes a multi-stage `Dockerfile` built on `python:3.12-slim` and optimized using the `uv` package manager. This makes the system containerized, portable, and ready for deployment to **Google Cloud Run** in seconds.
 
+### F. Self-Healing Agent Auto-Retry (RetryConfig)
+To guarantee robust operations under high load or rate limit situations, TruthLens integrates native ADK `RetryConfig` configurations across all **7 pipeline agents**. Using an exponential backoff strategy, the agents automatically self-heal and retry on transient `RESOURCE_EXHAUSTED` (429) or network exception states:
+```python
+agent_retry = RetryConfig(
+    max_attempts=3,
+    initial_delay=2.0,
+    max_delay=10.0,
+    backoff_factor=2.0,
+    exceptions=[Exception]
+)
+```
+This isolates the agent execution loop from temporary provider failures and increases overall verification accuracy.
+
 ---
 
 ## 4. 🎨 Premium User Interface Design
@@ -119,6 +133,8 @@ To deliver maximum user value and a compelling "Wow" factor for evaluation, Trut
 *   **Custom Branded Header & Title:** The browser tab name, HTML title, and interface headers are branded uniquely as "TruthLens | Advanced Multi-Agent Fact-Checking System" with standard Gradio footer branding completely hidden.
 *   **Dynamic Glowing Verdict Banners:** Custom HTML containers rendering large, colored verdict badges (green for True, red for False, amber for Misleading) with matching emoji indicators and drop-shadow glow effects.
 *   **Dynamic System Diagnostics:** Once the report is generated, a local diagnostic engine computes a **Source Consensus Analysis** (determining if web databases agree, conflict, or debunk the claim) and renders a structured **Source Domain Reliability Heatmap** table showing each cited URL domain's safety rating (Government/Academic, Trusted, Social Media, etc.) and safety score.
+*   **Interactive Live Execution Tracing:** Embedded directly at the bottom of verification reports, a collapsible **Live Agent Tracing Logs** details section captures and displays the raw JSON outputs of each agent span as they execute sequentially in the pipeline.
+*   **Cache Clear Administration:** A dedicated **🗑️ Clear Cache Database** button in the Registry Tab allows immediate database resets to clear cached verification pairs and refresh evaluation metrics.
 *   **Report Exporter component:** Dynamically generates a downloadable Markdown file (`.md`) of the fact-check report directly in the UI.
 
 ---
