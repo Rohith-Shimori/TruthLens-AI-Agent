@@ -73,18 +73,32 @@ def parse_verdict_from_report(report: str) -> Tuple[str, float]:
     
     report_lower = report.lower()
     
-    # Search for "Verdict: Mostly True", "**verdict:** false", etc.
-    match = re.search(r"verdict\s*:\s*\**([a-zA-Z\s]+)\**", report_lower)
-    verdict_str = match.group(1).strip() if match else ""
-    
-    if "mostly true" in verdict_str or "mostly true" in report_lower:
-        return "Mostly True", 75.0
-    elif "true" in verdict_str or "true" in report_lower:
-        if "mostly true" not in report_lower:
+    # 1. Look for structured lines like "verdict: false" or "verdict: **false**" or "overall verdict: **mostly true**"
+    match = re.search(r"(?:overall\s+)?verdict\s*:\s*\**([a-zA-Z\s]+)\**", report_lower)
+    if match:
+        verdict_str = match.group(1).strip()
+        if "mostly true" in verdict_str:
+            return "Mostly True", 75.0
+        elif "mostly false" in verdict_str:
+            return "Misleading", 40.0
+        elif "true" in verdict_str:
             return "True", 90.0
-    elif "misleading" in verdict_str or "misleading" in report_lower:
+        elif "misleading" in verdict_str:
+            return "Misleading", 40.0
+        elif "false" in verdict_str:
+            return "False", 15.0
+        elif "unverified" in verdict_str:
+            return "Unverified", 50.0
+
+    # 2. Strict fallback: scan only the top 15 lines of the report for the verdict keywords to prevent matching rules/instructions at the bottom
+    top_lines = "\n".join(report_lower.split("\n")[:15])
+    if "overall verdict: **true**" in top_lines or "verdict: true" in top_lines:
+        return "True", 90.0
+    elif "overall verdict: **mostly true**" in top_lines or "verdict: mostly true" in top_lines:
+        return "Mostly True", 75.0
+    elif "overall verdict: **misleading**" in top_lines or "verdict: misleading" in top_lines:
         return "Misleading", 40.0
-    elif "false" in verdict_str or "false" in report_lower:
+    elif "overall verdict: **false**" in top_lines or "verdict: false" in top_lines:
         return "False", 15.0
         
     return "Unverified", 50.0
@@ -206,6 +220,23 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
         yield get_verdict_html("Unverified", 0.0), 0.0, "### 🔑 API Key Required\nPlease enter your Gemini API key in the configuration panel above, or set it in your `.env` file to start the live verification pipeline.", "API Key missing", gr.update(visible=False)
         return
 
+    # Quick live check to ensure key is valid and has remaining quota
+    yield get_verdict_html("Processing", 5.0), 5.0, "### 🔌 Validating API key and quota...\nVerifying credentials against Google AI Studio.", "Validating credentials...", gr.update(visible=False)
+    try:
+        from google import genai
+        client = genai.Client(api_key=active_key)
+        client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents="test",
+        )
+    except Exception as e:
+        error_msg = str(e)
+        if "quota" in error_msg.lower() or "429" in error_msg:
+            yield get_verdict_html("Unverified", 0.0), 0.0, "### ⚠️ Gemini API Quota Exceeded\nYour API key has hit the daily free tier limit (20 requests per day) or rate limit. Please try again later or use a different key.", "Quota Exceeded", gr.update(visible=False)
+        else:
+            yield get_verdict_html("Unverified", 0.0), 0.0, f"### ❌ API Connection Failed\nYour API Key is invalid or not working:\n`{error_msg[:150]}`", "Key Error", gr.update(visible=False)
+        return
+
     session_id = f"sess_{int(time.time())}"
     current_status = "Initializing Agents..."
     
@@ -258,13 +289,36 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
                 yield get_verdict_html("Processing", 85.0), 85.0, "### ⚖️ Analyzing Formatting, Tone, and Logical Fallacies...\nEvaluating loaded language and emotional sentiment.", current_status, gr.update(visible=False)
             elif agent_name == "VerdictAgent":
                 current_status = "6/7 Cross-referencing and issuing verdicts..."
-                yield get_verdict_html("Processing", 95.0), 95.0, "### ⚖️ Cross-Referencing Evidence & Issuing Verdicts...\nSynthesizing source ratings and fact alignments.", current_status, gr.update(visible=False)
+                if text_content:
+                    verdict_data = extract_json_from_text(text_content)
+                    if isinstance(verdict_data, dict):
+                        # Extract overall confidence
+                        raw_conf = verdict_data.get("overall_confidence", 50.0)
+                        try:
+                            confidence = float(raw_conf)
+                        except (ValueError, TypeError):
+                            confidence = 50.0
+                        
+                        # Get verdicts list
+                        verdicts_list = verdict_data.get("verdicts", [])
+                        if verdicts_list:
+                            # Use the verdict of the first claim as the primary verdict
+                            verdict = verdicts_list[0].get("verdict", "Unverified")
+                        
+                        # Extract claims
+                        extracted_claims = verdict_data.get("claims", [])
+                        # Extract bias
+                        bias_data = verdict_data.get("bias", {})
+                        # Extract evidence
+                        evidence_list = verdict_data.get("evidence", [])
+                yield get_verdict_html(verdict if verdict != "Unverified" else "Processing", confidence if verdict != "Unverified" else 95.0), confidence if verdict != "Unverified" else 95.0, "### ⚖️ Cross-Referencing Evidence & Issuing Verdicts...\nSynthesizing source ratings and fact alignments.", current_status, gr.update(visible=False)
             elif agent_name == "ReportGeneratorAgent":
                 current_status = "7/7 Compiling final report..."
                 if text_content:
                     final_report = text_content
-                    # Robust verdict parsing
-                    verdict, confidence = parse_verdict_from_report(final_report)
+                    # Fallback verdict parsing if not already captured from VerdictAgent
+                    if verdict == "Unverified":
+                        verdict, confidence = parse_verdict_from_report(final_report)
                 yield get_verdict_html(verdict, confidence), confidence, final_report or "Generating final output...", current_status, gr.update(visible=False)
 
 
