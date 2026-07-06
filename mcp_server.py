@@ -1,8 +1,8 @@
 import json
 from fastmcp import FastMCP
-from tools import search_google_grounding, search_wikipedia
-from credibility import CredibilityScorer
-from bias_analyzer import BiasAnalyzer
+from src.tools import search_google_grounding, search_wikipedia
+from src.credibility import CredibilityScorer
+from src.bias_analyzer import BiasAnalyzer
 
 # Initialize FastMCP server
 mcp = FastMCP("TruthLens Verification Server")

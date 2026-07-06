@@ -1,44 +1,19 @@
 import os
-import json
-import time
-from typing import List, Dict, Any, Generator, Optional
+from typing import Generator, Optional
 from google.adk import Agent, Workflow, Runner, Event
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-from google.adk.agents.callback_context import CallbackContext
-from google.adk.models.llm_request import LlmRequest
-from google.adk.workflow._retry_config import RetryConfig
 
-from config import DEFAULT_MODEL, GOOGLE_API_KEY
-from tools import scrape_url, search_google_grounding, search_wikipedia, extract_text_from_image
-from credibility import CredibilityScorer
-from bias_analyzer import BiasAnalyzer
+from src.inference import DEFAULT_MODEL, GOOGLE_API_KEY, agent_retry, rate_limit_backoff
+from src.retrieval import scrape_url, search_google_grounding, search_wikipedia, extract_text_from_image
+from src.utils import CredibilityScorer, BiasAnalyzer
 
 # Initialize helpers
 cred_scorer = CredibilityScorer()
 bias_anal = BiasAnalyzer()
 
-# Define native auto-retry for self-healing agent pipelines
-agent_retry = RetryConfig(
-    max_attempts=3,
-    initial_delay=2.0,
-    max_delay=10.0,
-    backoff_factor=2.0,
-    exceptions=[Exception]
-)
-
-def rate_limit_backoff(*, callback_context: CallbackContext, llm_request: LlmRequest) -> Optional[Any]:
-    """Adds a brief delay of 0.8 seconds before sending requests to the LLM to prevent concurrent burst rate limits on Gemini Free Tier."""
-    node_name = callback_context.node.name if (callback_context and callback_context.node) else "unknown"
-    print(f"[TruthLens] Rate spacing: sleeping for 0.8s before calling model in agent '{node_name}'...")
-    time.sleep(0.8)
-    return None
-
-
 # Define tools as callable functions for the agents
-# ADK will parse docstrings to generate function schemas for the LLM
-
-def analyze_source_credibility_tool(urls: List[str]) -> str:
+def analyze_source_credibility_tool(urls: list) -> str:
     """
     Computes credibility scores for a list of URLs or domain names.
     Args:
@@ -46,6 +21,7 @@ def analyze_source_credibility_tool(urls: List[str]) -> str:
     Returns:
         JSON string containing the credibility assessment.
     """
+    import json
     res = cred_scorer.aggregate_credibility(urls)
     return json.dumps(res, indent=2)
 
@@ -57,11 +33,11 @@ def analyze_bias_tool(text: str) -> str:
     Returns:
         JSON string containing sensationalism ratings.
     """
+    import json
     res = bias_anal.analyze_bias_local(text)
     return json.dumps(res, indent=2)
 
 
-# ==========================================
 # 1. INGESTION AGENT
 # ==========================================
 ingestion_agent = Agent(
@@ -271,4 +247,3 @@ def run_truthlens_verification(user_input: str, user_id: str = "default_user", s
         session_id=session_id,
         new_message=content
     )
-

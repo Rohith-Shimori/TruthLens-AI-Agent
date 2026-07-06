@@ -5,27 +5,17 @@ import re
 import gradio as gr
 from typing import Tuple, Generator, Optional, Any
 
-# Import our modular components
-from config import GOOGLE_API_KEY
-from security import SecurityManager
-from memory import MemoryManager
-from agent import run_truthlens_verification
-from credibility import CredibilityScorer
-from bias_analyzer import BiasAnalyzer
+# Import modular components from package structure
+from src.inference import GOOGLE_API_KEY
+from src.utils import SecurityManager, MemoryManager, CredibilityScorer, BiasAnalyzer
+from src.pipeline import run_truthlens_verification
+from src.ui import custom_css, get_verdict_html, WELCOME_MESSAGE
 
 # Initialize managers
 security = SecurityManager()
 memory = MemoryManager()
 cred_scorer = CredibilityScorer()
 bias_anal = BiasAnalyzer()
-
-# Default report placeholder
-WELCOME_MESSAGE = """
-# 🛡️ TruthLens Verification Engine
-
-Please enter a URL, paste a suspicious claim, or upload a screenshot to initiate analysis. 
-The multi-agent system will extract facts, search web databases, score domain reliability, inspect for emotional bias, and compile an evidence report.
-"""
 
 def extract_json_from_text(text: str) -> Optional[Any]:
     """Extracts and parses the first JSON block found in a text string."""
@@ -102,41 +92,6 @@ def parse_verdict_from_report(report: str) -> Tuple[str, float]:
         return "False", 15.0
         
     return "Unverified", 50.0
-
-def get_verdict_html(verdict: str, confidence: float) -> str:
-    """Returns a highly polished, styled HTML banner for the overall verdict."""
-    color_map = {
-        "True": {"bg": "rgba(16, 185, 129, 0.12)", "border": "#10b981", "text": "#34d399", "emoji": "🛡️"},
-        "Mostly True": {"bg": "rgba(52, 211, 153, 0.08)", "border": "#34d399", "text": "#a7f3d0", "emoji": "✅"},
-        "Misleading": {"bg": "rgba(245, 158, 11, 0.12)", "border": "#f59e0b", "text": "#fbbf24", "emoji": "⚠️"},
-        "False": {"bg": "rgba(239, 68, 68, 0.12)", "border": "#ef4444", "text": "#f87171", "emoji": "❌"},
-        "Unverified": {"bg": "rgba(148, 163, 184, 0.12)", "border": "#94a3b8", "text": "#cbd5e1", "emoji": "🔍"},
-        "Pending": {"bg": "rgba(59, 130, 246, 0.08)", "border": "#3b82f6", "text": "#93c5fd", "emoji": "🤖"},
-        "Processing": {"bg": "rgba(59, 130, 246, 0.12)", "border": "#60a5fa", "text": "#bfdbfe", "emoji": "⚙️"}
-    }
-    
-    style = color_map.get(verdict, color_map["Unverified"])
-    
-    # Calculate a glowing color based on verdict
-    glow_color = style["border"]
-    
-    return f"""
-    <div style='
-        background: {style["bg"]}; 
-        border: 2px solid {style["border"]}; 
-        border-radius: 16px; 
-        padding: 24px; 
-        text-align: center;
-        margin-bottom: 24px;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3), 0 0 15px {glow_color}33;
-        backdrop-filter: blur(10px);
-        transition: all 0.3s ease;
-    '>
-        <div style='font-size: 48px; filter: drop-shadow(0 0 8px {glow_color});'>{style["emoji"]}</div>
-        <div style='font-size: 26px; font-weight: 800; color: {style["text"]}; margin-top: 10px; letter-spacing: 0.5px;'>OVERALL VERDICT: {verdict.upper()}</div>
-        <div style='font-size: 16px; color: #94a3b8; margin-top: 8px;'>TruthLens Confidence Level: <span style='font-weight: bold; color: #f8fafc;'>{confidence}%</span></div>
-    </div>
-    """
 
 def process_verification(user_input: str, image_file: Optional[str], api_key: Optional[str] = None) -> Generator[Tuple[str, float, str, str, Any], None, None]:
     """
@@ -384,6 +339,10 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
                 sources_md += "*No external source domains could be automatically verified from the report citation lists.*\n"
                 
             # 3. Consensus Scoring
+            supporting_count = 0
+            contradicting_count = 0
+            neutral_count = 0
+            
             report_lower = final_report.lower()
             support_terms = ["supported", "true", "confirmed", "accurate", "correct", "verified"]
             refute_terms = ["false", "debunked", "fake", "contradicted", "refuted", "misleading", "unreliable"]
@@ -403,11 +362,36 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
             elif has_refute:
                 consensus_rating = "🔴 Unanimous Contradiction (Debunked)"
                 consensus_desc = "Sources in our credibility index are aligned in refuting or debunking this claim."
-                
+
+            # Calculate counts for Priority 5 Visual Summaries
+            for claim_item in extracted_claims:
+                c_text = str(claim_item.get("claim_text", claim_item) if isinstance(claim_item, dict) else claim_item).lower()
+                if any(t in c_text for t in refute_terms):
+                    contradicting_count += 1
+                elif any(t in c_text for t in support_terms):
+                    supporting_count += 1
+                else:
+                    neutral_count += 1
+
+            # Fallback if counts are empty to ensure we always show data
+            if supporting_count == 0 and contradicting_count == 0:
+                if verdict == "True" or verdict == "Mostly True":
+                    supporting_count = len(extracted_claims) or 1
+                elif verdict == "False" or verdict == "Misleading":
+                    contradicting_count = len(extracted_claims) or 1
+                else:
+                    neutral_count = len(extracted_claims) or 1
+
             consensus_md = f"""
 ### ⚖️ Source Consensus Analysis
 - **Consensus Status**: **{consensus_rating}**
 - **Explanation**: {consensus_desc}
+
+#### 📊 Evidence Consensus Metrics:
+*   **Confidence Level**: `{confidence}%`
+*   **Supporting Evidence**: `{supporting_count}`
+*   **Contradicting Evidence**: `{contradicting_count}`
+*   **Neutral/Unverified Elements**: `{neutral_count}`
 """
             trace_md = f"""
 <details>
@@ -604,162 +588,7 @@ def select_general():
     return gr.Textbox(label="🌐 General Social Media / Web Claim", placeholder="Paste tweet text, news link, blog URL, or general claim to check.")
 
 
-# UI custom CSS injection for Outfit/Plus Jakarta typography, premium colors, and animations
-custom_css = """
-/* Enforce dark-theme CSS variables in both light and dark mode */
-:root, .dark {
-    --background-fill-primary: #0b0f19 !important;
-    --background-fill-secondary: #0f172a !important;
-    --block-background-fill: rgba(21, 28, 44, 0.65) !important;
-    --block-border-color: #1e293b !important;
-    --block-border-width: 1px !important;
-    
-    /* Text Colors */
-    --body-text-color: #cbd5e1 !important;
-    --body-text-color-subdued: #94a3b8 !important;
-    --block-title-text-color: #f8fafc !important;
-    --block-label-text-color: #94a3b8 !important;
-    --input-text-color: #f8fafc !important;
-    --input-placeholder-color: #475569 !important;
-    
-    /* Input Elements */
-    --input-background-fill: rgba(15, 23, 42, 0.8) !important;
-    --input-border-color: #1e293b !important;
-    --input-border-width: 1px !important;
-    
-    /* Buttons */
-    --button-primary-background-fill: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
-    --button-primary-background-fill-hover: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
-    --button-primary-text-color: white !important;
-    --button-secondary-background-fill: rgba(30, 41, 59, 0.4) !important;
-    --button-secondary-background-fill-hover: rgba(59, 130, 246, 0.1) !important;
-    --button-secondary-text-color: #94a3b8 !important;
-    --button-secondary-border-color: #1e293b !important;
-    
-    /* Tables */
-    --table-border-color: #1e293b !important;
-    --table-header-background-fill: rgba(30, 41, 59, 0.6) !important;
-    --table-row-background-fill: rgba(15, 23, 42, 0.4) !important;
-}
-
-* {
-    font-family: 'Plus Jakarta Sans', 'Outfit', sans-serif !important;
-}
-
-body {
-    background-color: #0b0f19 !important;
-    color: #cbd5e1 !important;
-}
-
-.gradio-container {
-    max-width: 1100px !important;
-    margin: 0 auto !important;
-    padding-top: 40px !important;
-    background-color: #0b0f19 !important;
-}
-
-/* Hide built-with Gradio footer branding completely */
-footer {
-    display: none !important;
-}
-
-/* Glassmorphism layouts */
-.glass-panel {
-    background: rgba(21, 28, 44, 0.65) !important;
-    border: 1px solid #1e293b !important;
-    border-radius: 16px !important;
-    padding: 24px !important;
-    box-shadow: 0 10px 30px 0 rgba(0, 0, 0, 0.4) !important;
-    backdrop-filter: blur(10px) !important;
-}
-
-/* Custom platform pills */
-.platform-row {
-    margin-bottom: 15px !important;
-}
-
-.platform-btn {
-    border: 1px solid #1e293b !important;
-    background: rgba(30, 41, 59, 0.4) !important;
-    color: #94a3b8 !important;
-    border-radius: 50px !important;
-    padding: 6px 14px !important;
-    font-size: 13px !important;
-    font-weight: 600 !important;
-    cursor: pointer !important;
-    transition: all 0.2s ease !important;
-}
-
-.platform-btn:hover {
-    background: rgba(59, 130, 246, 0.1) !important;
-    border-color: #3b82f6 !important;
-    color: #f8fafc !important;
-}
-
-/* Premium Verify Button */
-.verify-btn {
-    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
-    color: white !important;
-    font-weight: 700 !important;
-    border-radius: 12px !important;
-    border: none !important;
-    box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3) !important;
-    transition: all 0.2s ease !important;
-    padding: 12px 24px !important;
-}
-
-.verify-btn:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5) !important;
-}
-
-/* Custom Textbox overrides */
-#input-box textarea {
-    background-color: rgba(15, 23, 42, 0.8) !important;
-    border: 1px solid #1e293b !important;
-    border-radius: 12px !important;
-    color: #f8fafc !important;
-    font-size: 15px !important;
-}
-
-#input-box textarea:focus {
-    border-color: #3b82f6 !important;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
-}
-
-/* Custom progress slider */
-.confidence-slider {
-    background-color: transparent !important;
-}
-
-/* Force markdown rendering colors to behave under light mode settings */
-.prose p, .prose li, .prose span, .prose ul, .prose ol, .prose strong {
-    color: #cbd5e1 !important;
-}
-
-.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
-    color: #f8fafc !important;
-    font-weight: 700 !important;
-}
-
-.prose blockquote {
-    border-left-color: #3b82f6 !important;
-    color: #94a3b8 !important;
-    background: rgba(30, 41, 59, 0.2) !important;
-}
-
-.prose code {
-    color: #60a5fa !important;
-    background: rgba(15, 23, 42, 0.6) !important;
-}
-
-/* Custom styles for download File component to blend with glassmorphism */
-.file-preview {
-    background: rgba(15, 23, 42, 0.8) !important;
-    border: 1px solid #3b82f6 !important;
-    border-radius: 12px !important;
-}
-"""
+# custom_css is imported from src.ui
 
 with gr.Blocks(title="TruthLens | Advanced Multi-Agent Fact-Checking System") as demo:
     # Font stylesheet injection
@@ -794,11 +623,22 @@ with gr.Blocks(title="TruthLens | Advanced Multi-Agent Fact-Checking System") as
                         general_btn = gr.Button("🌐 General Web", elem_classes=["platform-btn"])
                     
                     user_text = gr.Textbox(
-                        label="🌐 General Social Media / Web Claim", 
-                        placeholder="Paste claim text, news article URL, or social media link here...",
+                        label="Factual Claim / URL to Verify", 
+                        placeholder="Enter a factual claim to retrieve evidence from trusted sources. Or click one of the example claims below to test immediately!",
                         lines=7,
                         max_length=50000,
                         elem_id="input-box"
+                    )
+                    
+                    gr.Examples(
+                        examples=[
+                            ["The Earth revolves around the Sun."],
+                            ["Coffee causes dehydration."],
+                            ["India landed Chandrayaan-3 on the Moon."],
+                            ["Vaccines cause autism."]
+                        ],
+                        inputs=[user_text],
+                        label="Example Claims (Click to test immediately)"
                     )
                     
                     with gr.Accordion("🖼️ Upload Screenshot / Image (OCR)", open=False):
@@ -947,7 +787,7 @@ if __name__ == "__main__":
     demo.launch(
         server_name="127.0.0.1", 
         server_port=7860, 
-        share=False,
+        share=True,
         css=custom_css, 
         theme=gr.themes.Soft(primary_hue="blue", secondary_hue="slate")
     )

@@ -1,13 +1,13 @@
+import os
 import requests
+import urllib.parse
 from bs4 import BeautifulSoup
 import wikipediaapi
 from typing import List, Dict, Any, Optional
-import os
-import urllib.parse
 from PIL import Image
 from google import genai
 from google.genai import types
-from config import GOOGLE_API_KEY, DEFAULT_MODEL
+from src.inference import GOOGLE_API_KEY, DEFAULT_MODEL
 
 # Initialize Wikipedia API
 # Using a descriptive user_agent as required by Wikipedia policy

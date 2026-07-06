@@ -1,0 +1,18 @@
+[
+  {
+    "claim": "The Earth revolves around the Sun.",
+    "category": "Science"
+  },
+  {
+    "claim": "Coffee causes dehydration.",
+    "category": "Health"
+  },
+  {
+    "claim": "India landed Chandrayaan-3 on the Moon.",
+    "category": "Space"
+  },
+  {
+    "claim": "Vaccines cause autism.",
+    "category": "Health"
+  }
+]
