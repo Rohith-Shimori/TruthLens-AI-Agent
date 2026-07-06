@@ -116,3 +116,26 @@ docker build -t truthlens .
 # Run the container
 docker run -p 7860:7860 --env-file .env truthlens
 ```
+
+---
+
+## 🛰️ High-Availability Demo Watchdog
+To keep the public demo link always active and self-updating on GitHub, we built a local keep-alive watchdog script (`watchdog.py`). The script starts the Gradio web process, intercepts the newly generated `.gradio.live` URL, rewrites the links in `README.md` and `docs/kaggle_writeup.md`, and pushes the updates back to GitHub in a continuous loop:
+
+```bash
+python watchdog.py
+```
+
+---
+
+## 🚫 Limitations & Edge Cases
+1.  **Gemini Free-Tier Quota:** Under high load, the free tier Gemini API key may encounter `RESOURCE_EXHAUSTED` (429) rate limit errors. While we handle this gracefully with native ADK `RetryConfig` exponential backoff, very high traffic may require upgrading to a paid tier key.
+2.  **Visual Language Context:** While the OCR agent performs excellently on English text screenshots, highly distorted or handwritten text in regional languages may occasionally reduce OCR accuracy.
+3.  **Real-Time Data Lag:** Real-time news events that occurred within the last few minutes may have a slight retrieval delay until search indexes index the articles.
+
+---
+
+## 🗺️ Future Work
+1.  **Multi-Lingual Verification:** Deploy specialized translation agents to translate regional language claims before running them through the verification pipeline.
+2.  **Audio & Video Transcription:** Integrate whisper-based transcription nodes to ingest and verify TikTok, Instagram Reels, and YouTube Shorts.
+3.  **Reinforcement Learning from Human Feedback (RLHF):** Allow professional fact-checkers to rate the generated reports, saving the feedback to improve agent prompts and scoring metrics.
