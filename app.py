@@ -13,7 +13,7 @@ import src.inference
 from src.inference import GOOGLE_API_KEY
 from src.utils import SecurityManager, MemoryManager, CredibilityScorer, BiasAnalyzer, DB_PATH
 from src.pipeline import run_truthlens_verification
-from src.ui import custom_css, get_verdict_html, WELCOME_MESSAGE
+from src.ui import custom_css, get_verdict_html, WELCOME_MESSAGE, HERO_HEADER_HTML, PIPELINE_VISUAL_HTML, FOOTER_HTML
 
 # Configure structured logging
 logging.basicConfig(
@@ -595,21 +595,15 @@ with gr.Blocks(title="TruthLens | Advanced Multi-Agent Fact-Checking System") as
     # Font stylesheet injection
     gr.HTML("<link href='https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap' rel='stylesheet'>")
     
-    # Title & Subtitle block
-    gr.HTML("""
-    <div style='text-align: center; margin-bottom: 40px;'>
-        <div style='display: inline-flex; align-items: center; gap: 10px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 50px; padding: 6px 16px; margin-bottom: 15px;'>
-            <span style='width: 8px; height: 8px; background: #3b82f6; border-radius: 50%; display: inline-block;'></span>
-            <span style='color: #93c5fd; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;'>Google ADK 2.0 Fact-Check System</span>
-        </div>
-        <h1 style='color: #f8fafc; font-size: 40px; font-weight: 800; letter-spacing: -1px; margin: 0;'>🛡️ TruthLens</h1>
-        <p style='color: #64748b; font-size: 16px; margin-top: 5px;'>Premium misinformation detection tailored for modern digital platforms</p>
-    </div>
-    """)
+    # Animated Hero Header
+    gr.HTML(HERO_HEADER_HTML)
+    
+    # Agent Pipeline Visual
+    gr.HTML(PIPELINE_VISUAL_HTML)
     
     with gr.Tabs():
         # TAB 1: Fact-Checking Workspace
-        with gr.Tab("Verification Hub"):
+        with gr.Tab("🔍 Verification Hub"):
             with gr.Row():
                 # LEFT COLUMN: INPUT CONTROLS
                 with gr.Column(scale=4, elem_classes=["glass-panel"]):
@@ -636,16 +630,20 @@ with gr.Blocks(title="TruthLens | Advanced Multi-Agent Fact-Checking System") as
                             ["The Earth revolves around the Sun."],
                             ["Coffee causes dehydration."],
                             ["India landed Chandrayaan-3 on the Moon."],
-                            ["Vaccines cause autism."]
+                            ["Vaccines cause autism."],
+                            ["5G cell towers spread COVID-19."],
+                            ["Humans use only 10% of their brain."],
+                            ["The Great Wall of China is visible from space."],
+                            ["Lightning never strikes the same place twice."]
                         ],
                         inputs=[user_text],
-                        label="Example Claims (Click to test immediately)"
+                        label="📋 Sample Claims (Click to test)"
                     )
                     
                     with gr.Accordion("🖼️ Upload Screenshot / Image (OCR)", open=False):
                         image_upload = gr.Image(label="Upload Screenshot", type="filepath")
                     
-                    verify_btn = gr.Button("Verify Content", variant="primary", elem_classes=["verify-btn"])
+                    verify_btn = gr.Button("⚡ Verify Content", variant="primary", elem_classes=["verify-btn"])
                     
                 # RIGHT COLUMN: STATUS & OUTPUT TIMELINE
                 with gr.Column(scale=5):
@@ -686,7 +684,7 @@ with gr.Blocks(title="TruthLens | Advanced Multi-Agent Fact-Checking System") as
             report_md = gr.Markdown(value=WELCOME_MESSAGE)
 
         # TAB 2: Cache & History Registry
-        with gr.Tab("TruthLens Registry"):
+        with gr.Tab("📊 TruthLens Registry"):
             gr.HTML("<h3 style='color: #f8fafc; margin-bottom: 20px; font-weight: 700;'>📊 System Metrics</h3>")
             analytics_html = gr.HTML(value=get_stats_html())
             
@@ -731,16 +729,8 @@ print(result[2]) # Print the markdown report!
 2. **Browser Extensions**: Highlight any text on a page, right-click, and send it to the TruthLens backend to get a visual popup verdict card.
 """)
 
-    # Custom premium footer
-    gr.HTML("""
-    <div style='text-align: center; margin-top: 40px; padding: 20px 0; border-top: 1px solid #1e293b; color: #64748b; font-size: 13px;'>
-        <div style='display: flex; justify-content: center; gap: 20px; margin-bottom: 10px;'>
-            <span style='font-weight: 600; color: #94a3b8;'>⚖️ System: Online</span>
-            <span style='font-weight: 600; color: #94a3b8;'>🛡️ Powered by: Google ADK 2.0 & Gemini 2.5</span>
-        </div>
-        <div>© 2026 TruthLens. All rights reserved. Built for Kaggle x Google AI Agents.</div>
-    </div>
-    """)
+    # Premium animated footer
+    gr.HTML(FOOTER_HTML)
 
     # Platform selector event wiring
     whatsapp_btn.click(fn=select_whatsapp, inputs=[], outputs=[user_text])
