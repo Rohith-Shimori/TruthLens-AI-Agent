@@ -1,0 +1,10 @@
+google-adk
+fastmcp
+gradio
+python-dotenv
+wikipedia-api
+requests
+beautifulsoup4
+pillow
+pydantic
+mcp
