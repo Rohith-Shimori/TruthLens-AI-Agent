@@ -7,6 +7,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_request import LlmRequest
+from google.adk.workflow._retry_config import RetryConfig
 
 from config import DEFAULT_MODEL, GOOGLE_API_KEY
 from tools import scrape_url, search_google_grounding, search_wikipedia, extract_text_from_image
@@ -16,6 +17,15 @@ from bias_analyzer import BiasAnalyzer
 # Initialize helpers
 cred_scorer = CredibilityScorer()
 bias_anal = BiasAnalyzer()
+
+# Define native auto-retry for self-healing agent pipelines
+agent_retry = RetryConfig(
+    max_attempts=3,
+    initial_delay=2.0,
+    max_delay=10.0,
+    backoff_factor=2.0,
+    exceptions=[Exception]
+)
 
 def rate_limit_backoff(*, callback_context: CallbackContext, llm_request: LlmRequest) -> Optional[Any]:
     """Adds a brief delay of 0.8 seconds before sending requests to the LLM to prevent concurrent burst rate limits on Gemini Free Tier."""
@@ -71,7 +81,8 @@ ingestion_agent = Agent(
         "Ensure your output is structured as JSON."
     ),
     tools=[scrape_url, extract_text_from_image],
-    before_model_callback=rate_limit_backoff
+    before_model_callback=rate_limit_backoff,
+    retry_config=agent_retry
 )
 
 # ==========================================
@@ -91,7 +102,8 @@ claim_extractor_agent = Agent(
         "and adding a new field 'claims' which is a list of objects. Each claim object must contain: 'id' (integer), "
         "'claim_text' (string), and 'reason' (why it is check-worthy)."
     ),
-    before_model_callback=rate_limit_backoff
+    before_model_callback=rate_limit_backoff,
+    retry_config=agent_retry
 )
 
 # ==========================================
@@ -113,7 +125,8 @@ evidence_retriever_agent = Agent(
         "'title' (publisher/article title), 'url' (direct link), and 'snippet' (supporting/contradicting quote))."
     ),
     tools=[search_google_grounding, search_wikipedia],
-    before_model_callback=rate_limit_backoff
+    before_model_callback=rate_limit_backoff,
+    retry_config=agent_retry
 )
 
 # ==========================================
@@ -134,7 +147,8 @@ credibility_scorer_agent = Agent(
         "'rating' (e.g. High, Medium, Low), and 'details' (a list of objects, each containing 'domain', 'safety_level', and 'explanation')."
     ),
     tools=[analyze_source_credibility_tool],
-    before_model_callback=rate_limit_backoff
+    before_model_callback=rate_limit_backoff,
+    retry_config=agent_retry
 )
 
 # ==========================================
@@ -155,7 +169,8 @@ bias_analyzer_agent = Agent(
         "'fallacies' (a list of strings), and 'analysis_summary' (a brief description of objectivity)."
     ),
     tools=[analyze_bias_tool],
-    before_model_callback=rate_limit_backoff
+    before_model_callback=rate_limit_backoff,
+    retry_config=agent_retry
 )
 
 # ==========================================
@@ -180,7 +195,8 @@ verdict_agent = Agent(
         "and adding a new field 'verdicts' which is a list of objects (each containing 'claim_id', 'verdict', and 'rationale') "
         "and a field 'overall_confidence' (number from 0 to 100)."
     ),
-    before_model_callback=rate_limit_backoff
+    before_model_callback=rate_limit_backoff,
+    retry_config=agent_retry
 )
 
 # ==========================================
@@ -205,7 +221,8 @@ report_generator_agent = Agent(
         "   - Digital Literacy Guidance: Provide actionable advice on how to spot this specific type of misinformation.\n"
         "Format your entire output as standard Markdown."
     ),
-    before_model_callback=rate_limit_backoff
+    before_model_callback=rate_limit_backoff,
+    retry_config=agent_retry
 )
 
 
