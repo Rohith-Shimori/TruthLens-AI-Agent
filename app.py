@@ -420,10 +420,47 @@ def process_verification(user_input: str, image_file: Optional[str], api_key: Op
             current_status = "Verification completed and cached!"
             yield get_verdict_html(verdict, confidence), confidence, final_report, current_status, file_update
         else:
-            yield get_verdict_html("Unverified", 50.0), 50.0, "### ⚠️ Verification Incomplete\nAgents finished but no report was returned. Try refining your prompt.", "Error", gr.update(visible=False)
+            # Check if it was a quota issue
+            quota_issue = False
+            try:
+                from google import genai
+                client = genai.Client(api_key=active_key)
+                client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents="test",
+                )
+            except Exception as e:
+                error_msg = str(e)
+                if "quota" in error_msg.lower() or "429" in error_msg:
+                    quota_issue = True
+            
+            if quota_issue:
+                yield get_verdict_html("Unverified", 0.0), 0.0, "### ⚠️ Gemini API Quota Exceeded\nYour API key ran out of quota during execution. Please try again later or use a different key.", "Quota Exceeded", gr.update(visible=False)
+            else:
+                yield get_verdict_html("Unverified", 50.0), 50.0, "### ⚠️ Verification Incomplete\nAgents finished but no report was returned. Try refining your prompt.", "Error", gr.update(visible=False)
             
     except Exception as e:
-        yield get_verdict_html("Unverified", 0.0), 0.0, f"### ❌ Execution Error\nAn error occurred while running the multi-agent system:\n`{str(e)}`", "Failed", gr.update(visible=False)
+        error_msg = str(e)
+        if "quota" in error_msg.lower() or "429" in error_msg:
+            yield get_verdict_html("Unverified", 0.0), 0.0, "### ⚠️ Gemini API Quota Exceeded\nYour API key has hit the daily free tier limit (20 requests per day) or rate limit. Please try again later or use a different key.", "Quota Exceeded", gr.update(visible=False)
+        else:
+            yield get_verdict_html("Unverified", 0.0), 0.0, f"### ❌ Execution Error\nAn error occurred while running the multi-agent system:\n`{error_msg}`", "Failed", gr.update(visible=False)
+
+def clear_cache_db():
+    print("[TruthLens] Clearing verification cache database...")
+    try:
+        import sqlite3
+        from config import DB_PATH
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("DROP TABLE IF EXISTS verification_cache")
+        conn.commit()
+        conn.close()
+        # Re-initialize database
+        memory._init_db()
+        return get_stats_html(), get_history_table(), "<span style='color: #10b981; font-weight: bold;'>🟢 Cache database cleared successfully!</span>"
+    except Exception as e:
+        return get_stats_html(), get_history_table(), f"<span style='color: #ef4444; font-weight: bold;'>🔴 Clear failed: {str(e)}</span>"
 
 # Get initial stats for dashboard
 def get_stats_html() -> str:
@@ -498,19 +535,19 @@ def get_history_table() -> list:
 
 # Presets mapping for quick-select platforms
 def select_whatsapp():
-    return gr.update(label="💬 WhatsApp Rumor Text / URL", placeholder="Paste forwarded message chain, viral text, or message link here. If you have an image, upload it in the accordion below.")
+    return gr.Textbox(label="💬 WhatsApp Rumor Text / URL", placeholder="Paste forwarded message chain, viral text, or message link here. If you have an image, upload it in the accordion below.")
 
 def select_telegram():
-    return gr.update(label="✈️ Telegram Forwarded Claim", placeholder="Paste text from Telegram channel, forwarded rumor, or channel post URL here.")
+    return gr.Textbox(label="✈️ Telegram Forwarded Claim", placeholder="Paste text from Telegram channel, forwarded rumor, or channel post URL here.")
 
 def select_linkedin():
-    return gr.update(label="💼 LinkedIn Post Claim", placeholder="Paste professional claim, job offer rumor, or user post text/URL here.")
+    return gr.Textbox(label="💼 LinkedIn Post Claim", placeholder="Paste professional claim, job offer rumor, or user post text/URL here.")
 
 def select_gmail():
-    return gr.update(label="📧 Gmail Suspicious Content", placeholder="Paste suspicious phishing email body, strange financial request, or sender info here.")
+    return gr.Textbox(label="📧 Gmail Suspicious Content", placeholder="Paste suspicious phishing email body, strange financial request, or sender info here.")
 
 def select_general():
-    return gr.update(label="🌐 General Social Media / Web Claim", placeholder="Paste tweet text, news link, blog URL, or general claim to check.")
+    return gr.Textbox(label="🌐 General Social Media / Web Claim", placeholder="Paste tweet text, news link, blog URL, or general claim to check.")
 
 
 # UI custom CSS injection for Outfit/Plus Jakarta typography, premium colors, and animations
@@ -763,7 +800,10 @@ with gr.Blocks(title="TruthLens | Advanced Multi-Agent Fact-Checking System") as
                 headers=["Content Snippet", "Verdict", "Confidence", "Verified At"],
                 value=get_history_table()
             )
-            refresh_btn = gr.Button("Refresh Registry & Statistics", elem_classes=["verify-btn"])
+            with gr.Row():
+                refresh_btn = gr.Button("Refresh Registry & Statistics", elem_classes=["verify-btn"])
+                clear_cache_btn = gr.Button("🗑️ Clear Cache Database", variant="stop")
+            cache_status_html = gr.HTML(value="")
 
         # TAB 3: Integrations & API Docs
         with gr.Tab("🔌 Developer API"):
@@ -841,6 +881,12 @@ print(result[2]) # Print the markdown report!
         fn=refresh_dashboard,
         inputs=[],
         outputs=[analytics_html, history_table]
+    )
+    
+    clear_cache_btn.click(
+        fn=clear_cache_db,
+        inputs=[],
+        outputs=[analytics_html, history_table, cache_status_html]
     )
 
 if __name__ == "__main__":
