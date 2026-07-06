@@ -403,11 +403,40 @@ def update_key_status(key: str) -> str:
         if GOOGLE_API_KEY:
             return "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #fbbf24; font-weight: bold;'>🟡 Environment Key Active (Loaded from .env)</span></div>"
         return "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #ef4444; font-weight: bold;'>🔴 Missing (Please paste your key above)</span></div>"
+    return "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #3b82f6; font-weight: bold;'>🔵 Key entered. Click 'Test & Connect Key' below to verify connection.</span></div>"
+
+def verify_and_connect_api_key(key: str) -> str:
+    clean_key = key.strip() if key else ""
+    if not clean_key:
+        return "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #ef4444; font-weight: bold;'>🔴 Connection Failed: API key cannot be empty.</span></div>"
         
-    if key.startswith("AIzaSy") and len(key) >= 30:
-        return "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #10b981; font-weight: bold;'>🟢 Active Key Entered (Will be saved to .env)</span></div>"
-    else:
-        return "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #fbbf24; font-weight: bold;'>⚠️ Key Format Warning (Ensure it is a valid Gemini API Key)</span></div>"
+    print(f"[TruthLens] Testing API Key connection...")
+    try:
+        from google import genai
+        client = genai.Client(api_key=clean_key)
+        # Make a tiny request to test the key
+        client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents="Test connection",
+        )
+        
+        # Write to .env automatically to save it
+        try:
+            with open(".env", "w") as f:
+                f.write(f"GOOGLE_API_KEY={clean_key}\n")
+            global GOOGLE_API_KEY
+            GOOGLE_API_KEY = clean_key
+        except Exception as e:
+            print(f"Failed to auto-save API key: {e}")
+            
+        return "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #10b981; font-weight: bold;'>🟢 Connection Successful! Key is active and linked to agents. (Saved to .env)</span></div>"
+    except Exception as e:
+        error_msg = str(e)
+        if "API key not valid" in error_msg or "INVALID_ARGUMENT" in error_msg:
+            return "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #ef4444; font-weight: bold;'>🔴 Connection Failed: API Key is invalid. Please check the spelling.</span></div>"
+        elif "quota" in error_msg.lower() or "429" in error_msg:
+            return "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #fbbf24; font-weight: bold;'>🟡 Connection Warning: Key is valid but has reached its rate limits (429 Quota).</span></div>"
+        return f"<div style='margin-top: 10px; font-size: 13px;'><span style='color: #ef4444; font-weight: bold;'>🔴 Connection Failed: {error_msg[:100]}</span></div>"
 
 def get_history_table() -> list:
     history = memory.get_recent_verifications()
@@ -659,6 +688,7 @@ with gr.Blocks(title="TruthLens | Advanced Multi-Agent Fact-Checking System") as
                             type="password",
                             value=GOOGLE_API_KEY or ""
                         )
+                        test_key_btn = gr.Button("🔌 Test & Connect Key", variant="secondary")
                         key_status_html = gr.HTML(
                             value="<div style='margin-top: 10px; font-size: 13px;'><span style='color: #10b981; font-weight: bold;'>🟢 Connected (Loaded from environment)</span></div>" if GOOGLE_API_KEY 
                             else "<div style='margin-top: 10px; font-size: 13px;'><span style='color: #ef4444; font-weight: bold;'>🔴 Missing (Please paste your key above)</span></div>"
@@ -733,6 +763,12 @@ print(result[2]) # Print the markdown report!
     # Dynamic API Key status handler
     api_key_input.change(
         fn=update_key_status,
+        inputs=[api_key_input],
+        outputs=[key_status_html]
+    )
+    
+    test_key_btn.click(
+        fn=verify_and_connect_api_key,
         inputs=[api_key_input],
         outputs=[key_status_html]
     )

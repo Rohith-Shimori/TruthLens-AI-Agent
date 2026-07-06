@@ -18,9 +18,10 @@ cred_scorer = CredibilityScorer()
 bias_anal = BiasAnalyzer()
 
 def rate_limit_backoff(*, callback_context: CallbackContext, llm_request: LlmRequest) -> Optional[Any]:
-    """Adds a delay of 4.0 seconds before sending requests to the LLM to avoid Gemini Free Tier rate limits (15 RPM)."""
-    print(f"[TruthLens] Rate limit backoff: sleeping for 4.0s before calling model in agent '{callback_context.node.name}'...")
-    time.sleep(4.0)
+    """Adds a brief delay of 0.8 seconds before sending requests to the LLM to prevent concurrent burst rate limits on Gemini Free Tier."""
+    node_name = callback_context.node.name if (callback_context and callback_context.node) else "unknown"
+    print(f"[TruthLens] Rate spacing: sleeping for 0.8s before calling model in agent '{node_name}'...")
+    time.sleep(0.8)
     return None
 
 

@@ -19,6 +19,7 @@ __pycache__/
 
 # Logs
 *.log
+truthlens_factcheck_report.md
 
 # OS generated files
 .DS_Store
