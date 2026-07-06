@@ -784,10 +784,16 @@ print(result[2]) # Print the markdown report!
     )
 
 if __name__ == "__main__":
+    # Check if running in a Hugging Face Space
+    is_hf = os.environ.get("SPACE_ID") is not None or os.environ.get("SYSTEM") == "spaces"
+    
+    server_name = "0.0.0.0" if is_hf else "127.0.0.1"
+    share_state = False if is_hf else True
+    
     demo.launch(
-        server_name="127.0.0.1", 
+        server_name=server_name, 
         server_port=7860, 
-        share=True,
+        share=share_state,
         css=custom_css, 
         theme=gr.themes.Soft(primary_hue="blue", secondary_hue="slate")
     )
