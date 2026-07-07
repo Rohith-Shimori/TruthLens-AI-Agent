@@ -8,7 +8,7 @@
 *   **Track Selection:** Agents for Good (Misinformation Detection & Digital Literacy)
 *   **GitHub Repository:** https://github.com/Rohith-Shimori/TruthLens-AI-Agent.git
 *   **Interactive Demo Link (Hugging Face):** [Hugging Face Space](https://huggingface.co/spaces/Rohith-Shimori/TruthLens-AI-Agent) (Permanent Cloud Deployment)
-*   **Video Demo:** *(Coming Soon)*
+*   **Video Demo:** https://youtu.be/o_uXlLCLFfg
 *   **Technologies Used:** Google Agent Development Kit (ADK) 2.0, Gemini 2.5 Flash, FastMCP, Gradio, SQLite, Python
 
 ---
