@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://huggingface.co/spaces/Rohith-Shimori/TruthLens-AI-Agent"><img src="https://img.shields.io/badge/🤗%20Demo-Hugging%20Face-blue" alt="HF Space"></a>
-  <a href="https://youtu.be/o_uXlLCLFfg"><img src="https://img.shields.io/badge/🤗%20Demo-YouTube-red" alt="HF Space"></a>
+  <a href="https://youtu.be/o_uXlLCLFfg"><img src="https://img.shields.io/badge/💽%20Demo-YouTube-red" alt="HF Space"></a>
   <a href="docs/kaggle_writeup.md"><img src="https://img.shields.io/badge/📝-Competition%20Writeup-green" alt="Writeup"></a>
   <img src="https://img.shields.io/badge/Tests-24%2F24%20Passing-brightgreen" alt="Tests">
   <img src="https://img.shields.io/badge/Agents-7%20Specialized-purple" alt="Agents">
